@@ -9,83 +9,53 @@ pipeline {
     stages {
         stage('Build Docker Image') {
             steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                }
+                sh 'docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .'
             }
         }
         
         stage('Linting & Code Quality') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh '''
-                            flake8 . || true
-                            black . || true
-                            bandit -r . || true
-                        '''
-                    }
-                }
+                sh '''
+                    docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 . || true
+                    docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} black . || true
+                    docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r . || true
+                '''
             }
         }
         
         stage('Prepare Data') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python main.py prepare_data'
-                    }
-                }
+                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py prepare_data'
             }
         }
         
         stage('Train Model') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python main.py train_model'
-                    }
-                }
+                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py train_model'
             }
         }
         
         stage('Evaluate Model') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python main.py evaluate_model'
-                    }
-                }
+                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py evaluate_model'
             }
         }
         
         stage('Save Model') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python main.py save_model'
-                    }
-                }
+                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py save_model'
             }
         }
         
         stage('Load Model & Re-Evaluate') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python main.py load_model'
-                    }
-                }
+                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model'
             }
         }
         
         stage('Run Tests') {
             steps {
-                script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
-                        sh 'python -m unittest discover -s tests'
-                    }
-                }
+                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python -m unittest discover -s tests'
             }
         }
     }
@@ -99,8 +69,7 @@ pipeline {
         }
         always {
             echo "Pipeline execution complete!"
-            // Clean up Docker images
-            sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"
+            sh 'docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true'
         }
     }
 }
