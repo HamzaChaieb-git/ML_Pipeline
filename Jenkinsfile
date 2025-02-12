@@ -6,7 +6,7 @@ pipeline {
         DOCKER_TAG = 'latest'
         FASTAPI_PORT = '8000'
         // Email configuration
-        EMAIL_RECIPIENT = 'hamza.chaieb@esprit.tn'
+        EMAIL_RECIPIENT = 'hitthetarget735@gmail.com'
     }
     
     stages {
