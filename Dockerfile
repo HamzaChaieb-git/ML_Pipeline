@@ -1,5 +1,3 @@
-Dockerfile
-Copy
 # Build stage for Python dependencies
 FROM python:3.12-slim as builder
 # Install system dependencies
