@@ -71,6 +71,11 @@ pipeline {
         }
         always {
             echo "Pipeline execution complete!"
+            // Clean up Docker containers
+            sh '''
+                docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
+            '''
+            // Remove the Docker image
             sh 'docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true'
         }
     }
