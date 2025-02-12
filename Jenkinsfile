@@ -2,73 +2,90 @@ pipeline {
     agent any
     
     environment {
-        VENV_DIR = "venv"
-        PYTHON = "${VENV_DIR}/bin/python"
-        PIP = "${VENV_DIR}/bin/pip"
+        DOCKER_IMAGE = 'ml-pipeline'
+        DOCKER_TAG = 'latest'
     }
     
     stages {
-        stage('Setup Environment') {
+        stage('Build Docker Image') {
             steps {
-                // Clean workspace first
-                cleanWs()
-                
-                // Checkout code
-                checkout scm
-                
-                // Create and activate virtual environment
-                sh '''
-                    python3 -m venv ${VENV_DIR}
-                    ${PIP} install --upgrade pip
-                    ${PIP} install -r requirements.txt
-                '''
+                script {
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                }
             }
         }
         
         stage('Linting & Code Quality') {
             steps {
-                sh '''
-                    ${PIP} install flake8 black bandit
-                    ${VENV_DIR}/bin/flake8 . || true
-                    ${VENV_DIR}/bin/black . || true
-                    ${VENV_DIR}/bin/bandit -r . || true
-                '''
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh '''
+                            flake8 . || true
+                            black . || true
+                            bandit -r . || true
+                        '''
+                    }
+                }
             }
         }
         
         stage('Prepare Data') {
             steps {
-                sh '${PYTHON} main.py prepare_data'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'python main.py prepare_data'
+                    }
+                }
             }
         }
         
         stage('Train Model') {
             steps {
-                sh '${PYTHON} main.py train_model'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'python main.py train_model'
+                    }
+                }
             }
         }
         
         stage('Evaluate Model') {
             steps {
-                sh '${PYTHON} main.py evaluate_model'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'python main.py evaluate_model'
+                    }
+                }
             }
         }
         
         stage('Save Model') {
             steps {
-                sh '${PYTHON} main.py save_model'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'python main.py save_model'
+                    }
+                }
             }
         }
         
         stage('Load Model & Re-Evaluate') {
             steps {
-                sh '${PYTHON} main.py load_model'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'python main.py load_model'
+                    }
+                }
             }
         }
         
         stage('Run Tests') {
             steps {
-                sh '${PYTHON} -m unittest discover -s tests'
+                script {
+                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").inside {
+                        sh 'python -m unittest discover -s tests'
+                    }
+                }
             }
         }
     }
@@ -81,9 +98,9 @@ pipeline {
             echo "❌ Pipeline failed!"
         }
         always {
-            // Clean up virtual environment
-            sh 'rm -rf ${VENV_DIR}'
             echo "Pipeline execution complete!"
+            // Clean up Docker images
+            sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"
         }
     }
 }
