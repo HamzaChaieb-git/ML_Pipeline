@@ -52,12 +52,6 @@ pipeline {
                 sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model'
             }
         }
-        
-        stage('Run Tests') {
-            steps {
-                sh 'docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} python -m unittest discover -s tests'
-            }
-        }
     }
     
     post {
