@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'ml-pipeline'
         DOCKER_TAG = 'latest'
+        FASTAPI_PORT = '8000'
     }
     
     stages {
@@ -60,6 +61,17 @@ pipeline {
                 sh 'docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model'
             }
         }
+        
+        // New stage for running FastAPI
+        stage('Run FastAPI Application') {
+            steps {
+                sh 'docker run -d --name fastapi_app -p ${FASTAPI_PORT}:${FASTAPI_PORT} ${DOCKER_IMAGE}:${DOCKER_TAG} uvicorn app:app --host 0.0.0.0 --port ${FASTAPI_PORT}'
+                // Wait for the application to start
+                sh 'sleep 10'
+                // Check if the FastAPI app is running
+                sh 'curl -f http://localhost:${FASTAPI_PORT}/docs || echo "FastAPI app did not start correctly"'
+            }
+        }
     }
     
     post {
@@ -73,7 +85,7 @@ pipeline {
             echo "Pipeline execution complete!"
             // Clean up Docker containers
             sh '''
-                docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
+                docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model fastapi_app || true
             '''
             // Commented out: Remove the Docker image (not removing as per your request)
             // sh 'docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true'
