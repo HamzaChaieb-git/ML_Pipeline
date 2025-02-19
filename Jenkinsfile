@@ -4,9 +4,6 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'ml-pipeline'
         DOCKER_TAG = 'latest'
-        FASTAPI_PORT = '8000'
-        // Email configuration
-        EMAIL_RECIPIENT = 'hitthetarget735@gmail.com'
     }
     
     stages {
@@ -63,42 +60,20 @@ pipeline {
                 sh 'docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model'
             }
         }
-        
-        // New stage for running FastAPI
-        stage('Run FastAPI Application') {
-            steps {
-                sh 'docker run -d --name fastapi_app -p ${FASTAPI_PORT}:${FASTAPI_PORT} ${DOCKER_IMAGE}:${DOCKER_TAG} uvicorn app:app --host 0.0.0.0 --port ${FASTAPI_PORT}'
-                // Wait for the application to start
-                sh 'sleep 10'
-                // Check if the FastAPI app is running
-                sh 'curl -f http://localhost:${FASTAPI_PORT}/docs || echo "FastAPI app did not start correctly"'
-            }
-        }
     }
     
     post {
         success {
             echo "✅ Pipeline executed successfully!"
-            // Send email on success
-            mail to: "${EMAIL_RECIPIENT}",
-                 subject: "Jenkins Pipeline Success: ML Pipeline",
-                 body: "The Jenkins pipeline for the ML Pipeline project has completed successfully."
         }
         failure {
             echo "❌ Pipeline failed!"
-            // Send email on failure
-            mail to: "${EMAIL_RECIPIENT}",
-                 subject: "Jenkins Pipeline Failure: ML Pipeline",
-                 body: "The Jenkins pipeline for the ML Pipeline project has failed. Please check the Jenkins console output for details."
         }
         always {
             echo "Pipeline execution complete!"
-            // Clean up Docker containers
             sh '''
-                docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model fastapi_app || true
+                docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
             '''
-            // Commented out: Remove the Docker image (not removing as per your request)
-            // sh 'docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true'
         }
     }
 }
