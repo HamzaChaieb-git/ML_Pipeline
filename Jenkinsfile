@@ -7,6 +7,11 @@ pipeline {
         FINAL_IMAGE = 'hamzachaieb01/ml-trained'
     }
     
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+    
     stages {
         stage('Docker Login') {
             steps {
@@ -15,69 +20,104 @@ pipeline {
                 '''
             }
         }
-
+        
         stage('Pull Docker Image') {
             steps {
-                sh 'docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}'
+                retry(3) {
+                    sh 'docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}'
+                }
             }
         }
         
         stage('Linting & Code Quality') {
             steps {
-                sh '''
-                    docker run -d --name linting ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 . || true
-                    docker logs -f linting
-                    docker rm linting
-                    
-                    docker run -d --name formatting ${DOCKER_IMAGE}:${DOCKER_TAG} black . || true
-                    docker logs -f formatting
-                    docker rm formatting
-                    
-                    docker run -d --name security ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r . || true
-                    docker logs -f security
-                    docker rm security
-                '''
+                script {
+                    try {
+                        sh '''
+                            docker run -d --name linting ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 . || true
+                            docker logs -f linting
+                            docker rm linting || true
+                            
+                            docker run -d --name formatting ${DOCKER_IMAGE}:${DOCKER_TAG} black . || true
+                            docker logs -f formatting
+                            docker rm formatting || true
+                            
+                            docker run -d --name security ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r . || true
+                            docker logs -f security
+                            docker rm security || true
+                        '''
+                    } catch (Exception e) {
+                        echo "Warning: Code quality checks failed but pipeline will continue"
+                    }
+                }
             }
         }
         
         stage('Prepare Data') {
             steps {
-                sh 'docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py prepare_data'
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py prepare_data
+                        docker logs -f prepare_data || true
+                    '''
+                }
             }
         }
         
         stage('Train Model') {
             steps {
-                sh 'docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py train_model'
+                timeout(time: 20, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py train_model
+                        docker logs -f train_model || true
+                    '''
+                }
             }
         }
         
         stage('Evaluate Model') {
             steps {
-                sh 'docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py evaluate_model'
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py evaluate_model
+                        docker logs -f evaluate_model || true
+                    '''
+                }
             }
         }
         
         stage('Save Model') {
             steps {
-                sh 'docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py save_model'
+                timeout(time: 5, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py save_model
+                        docker logs -f save_model || true
+                    '''
+                }
             }
         }
         
         stage('Load Model & Re-Evaluate') {
             steps {
-                sh 'docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model'
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model
+                        docker logs -f load_model || true
+                    '''
+                }
             }
         }
-
+        
         stage('Save Final Image') {
             steps {
                 script {
-                    sh '''
-                        docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
-                        docker push ${FINAL_IMAGE}:${DOCKER_TAG}
-                        echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
-                    '''
+                    retry(3) {
+                        sh '''
+                            docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
+                            docker push ${FINAL_IMAGE}:${DOCKER_TAG}
+                            echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
+                        '''
+                    }
                 }
             }
         }
@@ -90,12 +130,14 @@ pipeline {
         }
         failure {
             echo "❌ Pipeline failed!"
+            echo "Check the logs above for details"
         }
         always {
             echo "Pipeline execution complete!"
             sh '''
                 docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
                 docker logout || true
+                docker system prune -f || true
             '''
         }
     }
