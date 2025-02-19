@@ -2,14 +2,14 @@ pipeline {
     agent any
     
     environment {
-        DOCKER_IMAGE = 'ml-pipeline'
+        DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
     }
     
     stages {
-        stage('Build Docker Image') {
+        stage('Pull Docker Image') {
             steps {
-                sh 'docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .'
+                sh 'docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}'
             }
         }
         
