@@ -1,5 +1,11 @@
 import argparse
-from model_pipeline import prepare_data, train_model, evaluate_model, save_model, load_model
+from model_pipeline import (
+    prepare_data,
+    train_model,
+    evaluate_model,
+    save_model,
+    load_model,
+)
 
 # File paths for data
 train_file = "churn-bigml-80.csv"
@@ -10,18 +16,19 @@ parser = argparse.ArgumentParser(description="Machine Learning Pipeline Controll
 parser.add_argument(
     "action",
     type=str,
-    nargs="?",  # This makes the argument optional
+    nargs="?",
     default="all",
-    help="Action to perform: prepare_data, train_model, evaluate_model, save_model, load_model, or run all steps by default."
+    help=(
+        "Action to perform: prepare_data, train_model, evaluate_model, "
+        "save_model, load_model, or run all steps by default."
+    ),
 )
 
-# Parse arguments
-args = parser.parse_args()
 
-# Function to run the full pipeline
 def run_full_pipeline():
+    """Execute the complete ML pipeline."""
     print("Running full pipeline...")
-    
+
     print("\n🔹 Preparing data...")
     X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
 
@@ -37,6 +44,10 @@ def run_full_pipeline():
     print("\n🔹 Loading and re-evaluating model...")
     loaded_model = load_model()
     evaluate_model(loaded_model, X_test, y_test)
+
+
+# Parse arguments
+args = parser.parse_args()
 
 # Execute based on argument
 if args.action == "prepare_data":
@@ -70,5 +81,7 @@ elif args.action == "all":
     run_full_pipeline()
 
 else:
-    print("\n❌ Invalid action! Choose from: prepare_data, train_model, evaluate_model, save_model, load_model, or leave blank to run all.")
-
+    print(
+        "\n❌ Invalid action! Choose from: prepare_data, train_model, "
+        "evaluate_model, save_model, load_model, or leave blank to run all."
+    )
