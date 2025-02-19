@@ -8,6 +8,14 @@ pipeline {
     }
     
     stages {
+        stage('Docker Login') {
+            steps {
+                sh '''
+                    echo "dckr_pat_CR7iXpPUQ_MegbA9oIIsyk4Jl5k" | docker login -u hamzachaieb01 --password-stdin
+                '''
+            }
+        }
+
         stage('Pull Docker Image') {
             steps {
                 sh 'docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}'
@@ -65,7 +73,6 @@ pipeline {
         stage('Save Final Image') {
             steps {
                 script {
-                    // Commit the container with the trained model as a new image
                     sh '''
                         docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
                         docker push ${FINAL_IMAGE}:${DOCKER_TAG}
@@ -88,6 +95,7 @@ pipeline {
             echo "Pipeline execution complete!"
             sh '''
                 docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
+                docker logout || true
             '''
         }
     }
