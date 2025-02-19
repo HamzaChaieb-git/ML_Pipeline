@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
+        FINAL_IMAGE = 'hamzachaieb01/ml-trained'
     }
     
     stages {
@@ -60,11 +61,25 @@ pipeline {
                 sh 'docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model'
             }
         }
+
+        stage('Save Final Image') {
+            steps {
+                script {
+                    // Commit the container with the trained model as a new image
+                    sh '''
+                        docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
+                        docker push ${FINAL_IMAGE}:${DOCKER_TAG}
+                        echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
+                    '''
+                }
+            }
+        }
     }
     
     post {
         success {
             echo "✅ Pipeline executed successfully!"
+            echo "Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}"
         }
         failure {
             echo "❌ Pipeline failed!"
