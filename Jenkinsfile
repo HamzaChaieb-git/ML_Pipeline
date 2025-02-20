@@ -190,9 +190,7 @@ pipeline {
                                 
                                 <h3>Failure Information</h3>
                                 <p>Pipeline execution failed!</p>
-                                <pre style="background-color: #f9f9f9; padding: 10px; border-radius: 5px;">
-                                    ${BUILD_LOG, maxLines=50}
-                                </pre>
+                                <p>Please check the build logs for more details.</p>
                                 
                                 <h3>Changes</h3>
                                 <p>${CHANGES}</p>
