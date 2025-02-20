@@ -126,48 +126,92 @@ pipeline {
     
     post {
         success {
-            emailext (
-                subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - SUCCESS',
-                body: '''${SCRIPT, template="groovy-html.template"}
-                
-                Pipeline executed successfully!
-                Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
-                
-                Check console output at $BUILD_URL to view the results.
-                
-                Changes:
-                ${CHANGES}
-                
-                Failed Tests:
-                ${FAILED_TESTS}
-                ''',
-                to: "${EMAIL_TO}",
-                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
-                attachLog: true,
-                compressLog: true
-            )
+            script {
+                def finalImage = "${FINAL_IMAGE}:${DOCKER_TAG}"
+                emailext (
+                    subject: "ML Pipeline - Build #${BUILD_NUMBER} - Success",
+                    body: """
+                        <html>
+                        <body>
+                            <div style="font-family: Arial, sans-serif; padding: 20px;">
+                                <h2 style="color: #2ecc71;">✅ BUILD SUCCESS</h2>
+                                <hr/>
+                                
+                                <h3>Build Information</h3>
+                                <ul>
+                                    <li><b>Project:</b> ${JOB_NAME}</li>
+                                    <li><b>Build Number:</b> #${BUILD_NUMBER}</li>
+                                    <li><b>Build URL:</b> <a href="${BUILD_URL}">${BUILD_URL}</a></li>
+                                    <li><b>Duration:</b> ${currentBuild.durationString}</li>
+                                </ul>
+                                
+                                <h3>Pipeline Results</h3>
+                                <p>Pipeline executed successfully!</p>
+                                <p><b>Final image:</b> ${finalImage}</p>
+                                
+                                <h3>Changes</h3>
+                                <p>${CHANGES}</p>
+                                
+                                <hr/>
+                                <p style="font-size: 12px; color: #666;">
+                                    This is an automated email from Jenkins CI/CD Pipeline.<br/>
+                                    Please do not reply to this email.
+                                </p>
+                            </div>
+                        </body>
+                        </html>
+                    """,
+                    to: "${EMAIL_TO}",
+                    mimeType: 'text/html'
+                )
+            }
             echo "✅ Pipeline executed successfully!"
+            echo "Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}"
         }
         failure {
-            emailext (
-                subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - FAILURE',
-                body: '''${SCRIPT, template="groovy-html.template"}
-                
-                Pipeline execution failed!
-                
-                Check console output at $BUILD_URL to view the results.
-                
-                Failed Stage: ${FAILED_STAGE}
-                
-                Error Message:
-                ${BUILD_LOG}
-                ''',
-                to: "${EMAIL_TO}",
-                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
-                attachLog: true,
-                compressLog: true
-            )
+            script {
+                def finalImage = "${FINAL_IMAGE}:${DOCKER_TAG}"
+                emailext (
+                    subject: "ML Pipeline - Build #${BUILD_NUMBER} - Failed",
+                    body: """
+                        <html>
+                        <body>
+                            <div style="font-family: Arial, sans-serif; padding: 20px;">
+                                <h2 style="color: #e74c3c;">❌ BUILD FAILED</h2>
+                                <hr/>
+                                
+                                <h3>Build Information</h3>
+                                <ul>
+                                    <li><b>Project:</b> ${JOB_NAME}</li>
+                                    <li><b>Build Number:</b> #${BUILD_NUMBER}</li>
+                                    <li><b>Build URL:</b> <a href="${BUILD_URL}">${BUILD_URL}</a></li>
+                                    <li><b>Duration:</b> ${currentBuild.durationString}</li>
+                                </ul>
+                                
+                                <h3>Failure Information</h3>
+                                <p>Pipeline execution failed!</p>
+                                <pre style="background-color: #f9f9f9; padding: 10px; border-radius: 5px;">
+                                    ${BUILD_LOG, maxLines=50}
+                                </pre>
+                                
+                                <h3>Changes</h3>
+                                <p>${CHANGES}</p>
+                                
+                                <hr/>
+                                <p style="font-size: 12px; color: #666;">
+                                    This is an automated email from Jenkins CI/CD Pipeline.<br/>
+                                    Please do not reply to this email.
+                                </p>
+                            </div>
+                        </body>
+                        </html>
+                    """,
+                    to: "${EMAIL_TO}",
+                    mimeType: 'text/html'
+                )
+            }
             echo "❌ Pipeline failed!"
+            echo "Check the logs above for details"
         }
         always {
             echo "Pipeline execution complete!"
