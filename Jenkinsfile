@@ -5,6 +5,7 @@ pipeline {
         DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
         FINAL_IMAGE = 'hamzachaieb01/ml-trained'
+        EMAIL_TO = 'hitthetarget735@gmail.com'
     }
     
     options {
@@ -125,10 +126,31 @@ pipeline {
     
     post {
         success {
+            script {
+                emailext (
+                    subject: "✅ ML Pipeline Success",
+                    body: """Pipeline executed successfully!
+                    Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
+                    
+                    Check Jenkins for full build logs: ${env.BUILD_URL}""",
+                    to: "${EMAIL_TO}",
+                    mimeType: 'text/plain'
+                )
+            }
             echo "✅ Pipeline executed successfully!"
             echo "Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}"
         }
         failure {
+            script {
+                emailext (
+                    subject: "❌ ML Pipeline Failure",
+                    body: """Pipeline execution failed!
+                    
+                    Check Jenkins build logs for details: ${env.BUILD_URL}""",
+                    to: "${EMAIL_TO}",
+                    mimeType: 'text/plain'
+                )
+            }
             echo "❌ Pipeline failed!"
             echo "Check the logs above for details"
         }
