@@ -124,7 +124,7 @@ pipeline {
         }
     }
     
-    post {
+     post {
         success {
             script {
                 emailext (
@@ -134,20 +134,7 @@ pipeline {
                     
                     Check Jenkins for full build logs: ${env.BUILD_URL}""",
                     to: "${EMAIL_TO}",
-                    from: 'jenkins@localhost',
-                    replyTo: "${EMAIL_TO}",
-                    mimeType: 'text/plain',
-                    charset: 'UTF-8',
-                    attachLog: false,
-                    compressLog: false,
-                    configuration: [
-                        smtpHost: 'smtp.gmail.com',
-                        smtpPort: '465',
-                        useSsl: true,
-                        useTls: false,
-                        username: 'hitthetarget735@gmail.com',
-                        defaultSuffix: '@gmail.com'
-                    ]
+                    mimeType: 'text/plain'
                 )
             }
             echo "✅ Pipeline executed successfully!"
@@ -161,20 +148,7 @@ pipeline {
                     
                     Check Jenkins build logs for details: ${env.BUILD_URL}""",
                     to: "${EMAIL_TO}",
-                    from: 'jenkins@localhost',
-                    replyTo: "${EMAIL_TO}",
-                    mimeType: 'text/plain',
-                    charset: 'UTF-8',
-                    attachLog: false,
-                    compressLog: false,
-                    configuration: [
-                        smtpHost: 'smtp.gmail.com',
-                        smtpPort: '465',
-                        useSsl: true,
-                        useTls: false,
-                        username: 'hitthetarget735@gmail.com',
-                        defaultSuffix: '@gmail.com'
-                    ]
+                    mimeType: 'text/plain'
                 )
             }
             echo "❌ Pipeline failed!"
