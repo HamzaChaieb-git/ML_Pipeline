@@ -124,6 +124,25 @@ pipeline {
         }
     }
     
+  pipeline {
+    agent any
+    
+    environment {
+        DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
+        DOCKER_TAG = 'latest'
+        FINAL_IMAGE = 'hamzachaieb01/ml-trained'
+        EMAIL_TO = 'hitthetarget735@gmail.com'
+    }
+    
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        // ... [previous stages remain the same] ...
+    }
+    
     post {
         success {
             script {
@@ -148,9 +167,6 @@ pipeline {
                                 <h3>Pipeline Results</h3>
                                 <p>Pipeline executed successfully!</p>
                                 <p><b>Final image:</b> ${finalImage}</p>
-                                
-                                <h3>Changes</h3>
-                                <p>${CHANGES}</p>
                                 
                                 <hr/>
                                 <p style="font-size: 12px; color: #666;">
@@ -190,10 +206,7 @@ pipeline {
                                 
                                 <h3>Failure Information</h3>
                                 <p>Pipeline execution failed!</p>
-                                <p>Please check the build logs for more details.</p>
-                                
-                                <h3>Changes</h3>
-                                <p>${CHANGES}</p>
+                                <p>Please check the build logs at the URL above for more details.</p>
                                 
                                 <hr/>
                                 <p style="font-size: 12px; color: #666;">
