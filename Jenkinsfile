@@ -124,35 +124,50 @@ pipeline {
         }
     }
     
-     post {
+    post {
         success {
-            script {
-                emailext (
-                    subject: "✅ ML Pipeline Success",
-                    body: """Pipeline executed successfully!
-                    Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
-                    
-                    Check Jenkins for full build logs: ${env.BUILD_URL}""",
-                    to: "${EMAIL_TO}",
-                    mimeType: 'text/plain'
-                )
-            }
+            emailext (
+                subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - SUCCESS',
+                body: '''${SCRIPT, template="groovy-html.template"}
+                
+                Pipeline executed successfully!
+                Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
+                
+                Check console output at $BUILD_URL to view the results.
+                
+                Changes:
+                ${CHANGES}
+                
+                Failed Tests:
+                ${FAILED_TESTS}
+                ''',
+                to: "${EMAIL_TO}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                attachLog: true,
+                compressLog: true
+            )
             echo "✅ Pipeline executed successfully!"
-            echo "Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}"
         }
         failure {
-            script {
-                emailext (
-                    subject: "❌ ML Pipeline Failure",
-                    body: """Pipeline execution failed!
-                    
-                    Check Jenkins build logs for details: ${env.BUILD_URL}""",
-                    to: "${EMAIL_TO}",
-                    mimeType: 'text/plain'
-                )
-            }
+            emailext (
+                subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - FAILURE',
+                body: '''${SCRIPT, template="groovy-html.template"}
+                
+                Pipeline execution failed!
+                
+                Check console output at $BUILD_URL to view the results.
+                
+                Failed Stage: ${FAILED_STAGE}
+                
+                Error Message:
+                ${BUILD_LOG}
+                ''',
+                to: "${EMAIL_TO}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                attachLog: true,
+                compressLog: true
+            )
             echo "❌ Pipeline failed!"
-            echo "Check the logs above for details"
         }
         always {
             echo "Pipeline execution complete!"
