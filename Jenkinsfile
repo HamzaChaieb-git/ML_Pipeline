@@ -127,19 +127,50 @@ pipeline {
     post {
         success {
             emailext (
-                subject: "ML Pipeline - Build #${BUILD_NUMBER} - Success",
-                body: "Pipeline executed successfully!\nFinal image: ${FINAL_IMAGE}:${DOCKER_TAG}",
-                to: "${EMAIL_TO}"
+                subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - SUCCESS',
+                body: '''${SCRIPT, template="groovy-html.template"}
+                
+                Pipeline executed successfully!
+                Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
+                
+                Check console output at $BUILD_URL to view the results.
+                
+                Changes:
+                ${CHANGES}
+                
+                Failed Tests:
+                ${FAILED_TESTS}
+                ''',
+                to: "${EMAIL_TO}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                attachLog: true,
+                compressLog: true
             )
+            echo "✅ Pipeline executed successfully!"
         }
         failure {
             emailext (
-                subject: "ML Pipeline - Build #${BUILD_NUMBER} - Failed",
-                body: "Pipeline execution failed. Check logs at: ${BUILD_URL}",
-                to: "${EMAIL_TO}"
+                subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - FAILURE',
+                body: '''${SCRIPT, template="groovy-html.template"}
+                
+                Pipeline execution failed!
+                
+                Check console output at $BUILD_URL to view the results.
+                
+                Failed Stage: ${FAILED_STAGE}
+                
+                Error Message:
+                ${BUILD_LOG}
+                ''',
+                to: "${EMAIL_TO}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                attachLog: true,
+                compressLog: true
             )
+            echo "❌ Pipeline failed!"
         }
         always {
+            echo "Pipeline execution complete!"
             sh '''
                 docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
                 docker logout || true
