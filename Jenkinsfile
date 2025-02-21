@@ -40,7 +40,6 @@ pipeline {
         stage('Run ML Pipeline with MLflow') {
             steps {
                 script {
-                    // Create temporary MLflow container for tracking
                     sh '''
                         # Start temporary MLflow server for tracking
                         docker run -d --name mlflow-temp \
@@ -53,7 +52,6 @@ pipeline {
                         sleep 10
                     '''
 
-                    // Run pipeline steps
                     def pipelineSteps = ['prepare_data', 'train_model', 'evaluate_model', 'save_model', 'load_model']
                     
                     for (step in pipelineSteps) {
@@ -69,6 +67,16 @@ pipeline {
                             docker rm ${step}
                         """
                     }
+
+                    // Extract MLflow data from container
+                    sh '''
+                        # Create temp directory
+                        rm -rf mlflow_data || true
+                        mkdir mlflow_data
+
+                        # Copy MLflow data from container
+                        docker cp mlflow-temp:/mlflow/. mlflow_data/
+                    '''
                 }
             }
         }
@@ -81,17 +89,17 @@ pipeline {
                         cat << EOF > Dockerfile.mlflow
 FROM ${DOCKER_IMAGE}:${DOCKER_TAG}
 
-# Copy MLflow data from temporary container
-COPY --from=mlflow-temp /mlflow /mlflow
-
-# Set working directory
+# Create mlflow directory
 WORKDIR /mlflow
 
+# Copy MLflow data
+COPY mlflow_data/. .
+
 # Expose port
-EXPOSE 5001
+EXPOSE 5000
 
 # Start MLflow server
-CMD ["mlflow", "ui", "--host", "0.0.0.0", "--port", "5001"]
+CMD ["mlflow", "ui", "--host", "0.0.0.0", "--port", "5000"]
 EOF
 
                         # Build and push MLflow server image
@@ -150,12 +158,12 @@ EOF
         }
         always {
             sh '''
-                # Cleanup containers
+                # Cleanup containers and network
                 docker rm -f mlflow-temp || true
                 docker network rm mlflow-net || true
                 
                 # Cleanup files
-                rm -f Dockerfile.mlflow || true
+                rm -rf mlflow_data Dockerfile.mlflow || true
                 
                 # Logout
                 docker logout
