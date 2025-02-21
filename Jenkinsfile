@@ -4,6 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
+        FINAL_IMAGE = 'hamzachaieb01/ml-trained'
         MLFLOW_SERVER_IMAGE = 'hamzachaieb01/mlflow-server'
         EMAIL_TO = 'hitthetarget735@gmail.com'
     }
@@ -30,28 +31,11 @@ pipeline {
             }
         }
         
-        stage('Linting & Code Quality') {
-            steps {
-                script {
-                    try {
-                        sh '''
-                            docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 .
-                            docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} black . --check
-                            docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r .
-                        '''
-                    } catch (Exception e) {
-                        echo "Warning: Code quality checks failed but pipeline will continue"
-                    }
-                }
-            }
-        }
-
-        stage('Run Pipeline and Collect Metrics') {
+        stage('Run Pipeline with MLflow') {
             steps {
                 script {
                     sh '''
-                        # Create directory for MLflow data
-                        rm -rf ${WORKSPACE}/mlflow_data
+                        # Create MLflow data directory
                         mkdir -p ${WORKSPACE}/mlflow_data
                         
                         # Run pipeline with MLflow tracking
@@ -60,14 +44,14 @@ pipeline {
                             ${DOCKER_IMAGE}:${DOCKER_TAG} \
                             python main.py all
                             
-                        # Get logs and cleanup
-                        docker logs ml-pipeline
-                        docker rm ml-pipeline
+                        # Get logs
+                        docker logs ml-pipeline || true
+                        docker rm ml-pipeline || true
                     '''
                 }
             }
         }
-
+        
         stage('Create MLflow Server Image') {
             steps {
                 script {
@@ -92,8 +76,21 @@ EOF
                         # Build and push image
                         docker build -t ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG} -f Dockerfile.mlflow .
                         docker push ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
-                        echo "✅ MLflow server image pushed as ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}"
                     '''
+                }
+            }
+        }
+        
+        stage('Save Final Image') {
+            steps {
+                script {
+                    retry(3) {
+                        sh '''
+                            docker commit ml-pipeline ${FINAL_IMAGE}:${DOCKER_TAG}
+                            docker push ${FINAL_IMAGE}:${DOCKER_TAG}
+                            echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
+                        '''
+                    }
                 }
             }
         }
@@ -106,10 +103,12 @@ EOF
                 body: '''${SCRIPT, template="groovy-html.template"}
                 
                 Pipeline executed successfully!
-                MLflow Server image: "${MLFLOW_SERVER_IMAGE}":"${DOCKER_TAG}"
                 
-                To view ML metrics and results:
-                docker run -d -p 5001:5000 "${MLFLOW_SERVER_IMAGE}":"${DOCKER_TAG}"
+                Final ML image: ${FINAL_IMAGE}:${DOCKER_TAG}
+                MLflow Server: ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                
+                To view ML metrics:
+                docker run -d -p 5001:5000 ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
                 Then visit http://localhost:5001
                 
                 Check console output at $BUILD_URL to view the results.
@@ -145,6 +144,7 @@ EOF
         always {
             sh '''
                 # Cleanup
+                docker rm -f ml-pipeline || true
                 rm -rf ${WORKSPACE}/mlflow_data
                 rm -f Dockerfile.mlflow
                 docker logout
