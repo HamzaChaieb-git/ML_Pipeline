@@ -125,12 +125,10 @@ pipeline {
                             # Commit the container with the model and MLflow data into a new image
                             docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
                             
-                            # Create a Dockerfile for the final image with MLflow
+                            # Create a Dockerfile for the final image (no requirements.txt needed)
                             cat > Dockerfile.final << 'EOF'
-FROM python:3.9-slim
+FROM ${DOCKER_IMAGE}:${DOCKER_TAG}
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
 COPY . .
 COPY ${MLFLOW_DB} /app/${MLFLOW_DB}
 CMD ["python", "main.py", "all"]
