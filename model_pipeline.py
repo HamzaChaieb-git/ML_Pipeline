@@ -46,53 +46,49 @@ def prepare_data(train_file, test_file):
 
 def train_model(X_train, y_train):
     """Train the RandomForest model."""
-    with mlflow.start_run(nested=True):
-        model_params = {
-            "n_estimators": 100,
-            "random_state": 42,
-            "max_depth": 10,
-            "min_samples_split": 5,
-        }
-        
-        # Log parameters
-        mlflow.log_params(model_params)
-        
-        model = RandomForestClassifier(**model_params)
-        model.fit(X_train, y_train)
-        
-        # Log feature importances
-        feature_imp = pd.DataFrame({
-            'feature': X_train.columns,
-            'importance': model.feature_importances_
-        })
-        feature_imp.to_csv("feature_importances.csv", index=False)
-        mlflow.log_artifact("feature_importances.csv")
-        
-        return model
+    params = {
+        "n_estimators": 100,
+        "random_state": 42,
+        "max_depth": 10,
+        "min_samples_split": 5,
+    }
+    
+    # Log parameters with MLflow
+    mlflow.log_params(params)
+    
+    model = RandomForestClassifier(**params)
+    model.fit(X_train, y_train)
+    
+    # Log feature importances
+    feature_imp = pd.DataFrame({
+        'feature': X_train.columns,
+        'importance': model.feature_importances_
+    })
+    feature_imp.to_csv("feature_importances.csv", index=False)
+    mlflow.log_artifact("feature_importances.csv")
+    
+    # Log model
+    mlflow.sklearn.log_model(model, "model")
+    
+    return model
+
 
 def evaluate_model(model, X_test, y_test):
-    """Evaluate the model and log metrics."""
-    with mlflow.start_run(nested=True):
-        predictions = model.predict(X_test)
-        
-        # Calculate metrics
-        metrics = {
-            "accuracy": accuracy_score(y_test, predictions),
-            "precision": precision_score(y_test, predictions),
-            "recall": recall_score(y_test, predictions),
-            "f1": f1_score(y_test, predictions)
-        }
-        
-        # Log metrics
-        mlflow.log_metrics(metrics)
-        
-        print("\nClassification Report:")
-        print(classification_report(y_test, predictions))
-        
-        print("\nConfusion Matrix:")
-        print(confusion_matrix(y_test, predictions))
-        
-        return metrics
+    """Evaluate the model and print classification metrics."""
+    predictions = model.predict(X_test)
+    
+    # Log metrics with MLflow
+    mlflow.log_metric("accuracy", accuracy_score(y_test, predictions))
+    mlflow.log_metric("precision", precision_score(y_test, predictions))
+    mlflow.log_metric("recall", recall_score(y_test, predictions))
+    mlflow.log_metric("f1", f1_score(y_test, predictions))
+    
+    print("\nClassification Report:")
+    print(classification_report(y_test, predictions))
+    
+    print("\nConfusion Matrix:")
+    print(confusion_matrix(y_test, predictions))
+    
 
 def save_model(model, filename="model.joblib"):
     """Save the model using joblib and MLflow."""
