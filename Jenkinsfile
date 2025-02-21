@@ -4,9 +4,8 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
-        FINAL_IMAGE = 'hamzachaieb01/ml-trained-mlflow'
+        FINAL_IMAGE = 'hamzachaieb01/ml-trained'
         EMAIL_TO = 'hitthetarget735@gmail.com'
-        MLFLOW_DB = 'mlflow.db'
     }
     
     options {
@@ -110,42 +109,18 @@ pipeline {
             }
         }
         
-        stage('Save Final Image with MLflow Data') {
+        stage('Save Final Image') {
             steps {
                 script {
                     retry(3) {
                         sh '''
-                            # Wait for the model training and evaluation to ensure MLflow data is logged
-                            sleep 10
-                            
-                            # Check if mlflow.db exists; create an empty file if it doesn't
-                            if [ ! -f ${MLFLOW_DB} ]; then
-                                touch ${MLFLOW_DB}
-                                echo "Created empty mlflow.db file"
-                            fi
-                            
-                            # Copy MLflow database to ensure it's included (even if empty)
-                            cp ${MLFLOW_DB} ${MLFLOW_DB}.backup || true
-                            
-                            # Commit the container with the model and MLflow data into a new image
+                            # Commit the container with the model into a new image
                             docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
-                            
-                            # Create a Dockerfile for the final image (no requirements.txt needed)
-                            cat > Dockerfile.final << 'EOF'
-FROM hamzachaieb01/ml-pipeline:latest
-WORKDIR /app
-COPY . .
-COPY ${MLFLOW_DB} /app/${MLFLOW_DB}
-CMD ["python", "main.py", "all"]
-EOF
-                            
-                            # Build the final image with MLflow data
-                            docker build -f Dockerfile.final -t ${FINAL_IMAGE}:${DOCKER_TAG} .
                             
                             # Push the final image to Docker Hub
                             docker push ${FINAL_IMAGE}:${DOCKER_TAG}
                             
-                            echo "✅ Final image with MLflow data saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
+                            echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
                         '''
                     }
                 }
@@ -163,8 +138,6 @@ EOF
                 Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
                 
                 Check console output at $BUILD_URL to view the results.
-                To view MLflow metrics, pull the image locally and run:
-                docker run -d -p 5000:5000 -v $(pwd)/mlflow.db:/app/mlflow.db ${FINAL_IMAGE}:${DOCKER_TAG} mlflow ui --backend-store-uri sqlite:///mlflow.db --host 0.0.0.0 --port 5000
                 
                 Changes:
                 ${CHANGES}
