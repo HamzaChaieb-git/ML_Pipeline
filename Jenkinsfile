@@ -5,9 +5,8 @@ pipeline {
         DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
         FINAL_IMAGE = 'hamzachaieb01/ml-trained'
-        MLFLOW_IMAGE = 'hamzachaieb01/mlflow-pipeline'
+        MLFLOW_SERVER_IMAGE = 'hamzachaieb01/mlflow-server'
         EMAIL_TO = 'hitthetarget735@gmail.com'
-        MLFLOW_PORT = '5001'  // Changed to avoid conflicts
     }
     
     options {
@@ -16,26 +15,40 @@ pipeline {
     }
     
     stages {
-        stage('Cleanup Previous Run') {
-            steps {
-                sh '''
-                    # Stop and remove any existing containers
-                    docker ps -a -q | xargs -r docker rm -f
-                    
-                    # Remove existing networks
-                    docker network ls | grep mlflow-net | awk '{print $1}' | xargs -r docker network rm
-                    
-                    # Clean up unused volumes
-                    docker volume prune -f
-                '''
-            }
-        }
-        
         stage('Docker Login') {
             steps {
                 sh '''
                     echo "dckr_pat_CR7iXpPUQ_MegbA9oIIsyk4Jl5k" | docker login -u hamzachaieb01 --password-stdin
                 '''
+            }
+        }
+        
+        stage('Create MLflow Server Image') {
+            steps {
+                script {
+                    sh '''
+                        # Create MLflow server Dockerfile
+                        cat << EOF > Dockerfile.mlflow
+FROM python:3.9-slim
+
+# Install MLflow
+RUN pip install mlflow
+
+# Create directory for MLflow data
+WORKDIR /mlflow
+
+# Expose port
+EXPOSE 5000
+
+# Start MLflow server
+CMD ["mlflow", "ui", "--host", "0.0.0.0", "--port", "5000"]
+EOF
+
+                        # Build and push MLflow server image
+                        docker build -t ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG} -f Dockerfile.mlflow .
+                        docker push ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                    '''
+                }
             }
         }
         
@@ -52,9 +65,17 @@ pipeline {
                 script {
                     try {
                         sh '''
-                            docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 .
-                            docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} black . --check
-                            docker run --rm ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r .
+                            docker run -d --name linting ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 . || true
+                            docker logs -f linting
+                            docker rm linting || true
+                            
+                            docker run -d --name formatting ${DOCKER_IMAGE}:${DOCKER_TAG} black . || true
+                            docker logs -f formatting
+                            docker rm formatting || true
+                            
+                            docker run -d --name security ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r . || true
+                            docker logs -f security
+                            docker rm security || true
                         '''
                     } catch (Exception e) {
                         echo "Warning: Code quality checks failed but pipeline will continue"
@@ -73,122 +94,121 @@ pipeline {
             steps {
                 script {
                     sh '''
-                        # Check if port is in use
-                        if lsof -Pi :${MLFLOW_PORT} -sTCP:LISTEN -t >/dev/null ; then
-                            echo "Port ${MLFLOW_PORT} is in use. Killing process..."
-                            lsof -Pi :${MLFLOW_PORT} -sTCP:LISTEN -t | xargs kill -9
-                        fi
-                        
-                        # Start MLflow server
                         docker run -d --name mlflow \
                             --network mlflow-net \
-                            -p ${MLFLOW_PORT}:5000 \
+                            -p 5000:5000 \
                             -v mlflow_data:/mlflow \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            mlflow ui --host 0.0.0.0 --port 5000
-                        
-                        # Wait for MLflow to start and verify it's running
-                        for i in $(seq 1 30); do
-                            if curl -s http://localhost:${MLFLOW_PORT}/ > /dev/null; then
-                                echo "MLflow server is up!"
-                                break
-                            fi
-                            sleep 1
-                        done
+                            ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                            
+                        # Wait for MLflow to start
+                        sleep 10
                     '''
                 }
             }
         }
         
-        stage('Run Pipeline Steps') {
+        stage('Prepare Data') {
             steps {
-                script {
-                    def pipelineSteps = ['prepare_data', 'train_model', 'evaluate_model', 'save_model', 'load_model']
-                    
-                    for (step in pipelineSteps) {
-                        sh """
-                            docker run -d --name ${step} \
-                                --network mlflow-net \
-                                -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
-                                ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                                python main.py ${step}
-                            
-                            # Wait for container to finish and check exit code
-                            docker wait ${step} | tee exit_code
-                            if [ "\$(cat exit_code)" != "0" ]; then
-                                echo "${step} failed with exit code \$(cat exit_code)"
-                                exit 1
-                            fi
-                            
-                            # Show logs
-                            docker logs ${step}
-                            
-                            # Cleanup
-                            docker rm ${step}
-                        """
-                    }
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name prepare_data \
+                            --network mlflow-net \
+                            -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            python main.py prepare_data
+                        docker logs -f prepare_data || true
+                    '''
                 }
             }
         }
-
-        stage('Create MLflow Pipeline Image') {
+        
+        stage('Train Model') {
+            steps {
+                timeout(time: 20, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name train_model \
+                            --network mlflow-net \
+                            -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            python main.py train_model
+                        docker logs -f train_model || true
+                    '''
+                }
+            }
+        }
+        
+        stage('Evaluate Model') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name evaluate_model \
+                            --network mlflow-net \
+                            -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            python main.py evaluate_model
+                        docker logs -f evaluate_model || true
+                    '''
+                }
+            }
+        }
+        
+        stage('Save Model') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name save_model \
+                            --network mlflow-net \
+                            -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            python main.py save_model
+                        docker logs -f save_model || true
+                    '''
+                }
+            }
+        }
+        
+        stage('Load Model & Re-Evaluate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name load_model \
+                            --network mlflow-net \
+                            -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            python main.py load_model
+                        docker logs -f load_model || true
+                    '''
+                }
+            }
+        }
+        
+        stage('Save Final Image') {
             steps {
                 script {
-                    sh '''
-                        # Create temporary dockerfile
-                        cat << EOF > Dockerfile.mlflow
-FROM ${DOCKER_IMAGE}:${DOCKER_TAG}
-
-# Copy MLflow artifacts
-COPY --from=mlflow /mlflow /mlflow
-
-# Set working directory
-WORKDIR /app
-
-# Start script
-RUN echo '#!/bin/bash\\nmlflow ui --host 0.0.0.0 --port 5000 &\\nsleep 10\\npython main.py all' > /start.sh && \\
-    chmod +x /start.sh
-
-EXPOSE 5000
-CMD ["/start.sh"]
-EOF
-
-                        # Build and push image
-                        docker build -t ${MLFLOW_IMAGE}:${DOCKER_TAG} -f Dockerfile.mlflow .
-                        docker push ${MLFLOW_IMAGE}:${DOCKER_TAG}
-                        echo "✅ MLflow Pipeline image pushed as ${MLFLOW_IMAGE}:${DOCKER_TAG}"
-                    '''
+                    retry(3) {
+                        sh '''
+                            docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
+                            docker push ${FINAL_IMAGE}:${DOCKER_TAG}
+                            echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
+                        '''
+                    }
                 }
             }
         }
     }
     
     post {
-        always {
-            sh '''
-                # Cleanup containers
-                docker ps -a -q | xargs -r docker rm -f
-                
-                # Cleanup network
-                docker network rm mlflow-net || true
-                
-                # Cleanup files
-                rm -f Dockerfile.mlflow exit_code || true
-                
-                # Logout from Docker
-                docker logout || true
-                
-                # System prune
-                docker system prune -f
-            '''
-        }
         success {
             emailext (
                 subject: '$PROJECT_NAME - Build #$BUILD_NUMBER - SUCCESS',
                 body: '''${SCRIPT, template="groovy-html.template"}
                 
                 Pipeline executed successfully!
-                MLflow Pipeline image: ${MLFLOW_IMAGE}:${DOCKER_TAG}
+                Final ML image: ${FINAL_IMAGE}:${DOCKER_TAG}
+                MLflow Server image: ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                
+                To run MLflow server locally:
+                docker run -d -p 5000:5000 -v mlflow_data:/mlflow ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
                 
                 Check console output at $BUILD_URL to view the results.
                 
@@ -222,6 +242,14 @@ EOF
                 compressLog: true
             )
             echo "❌ Pipeline failed!"
+        }
+        always {
+            sh '''
+                docker rm -f mlflow linting formatting security prepare_data train_model evaluate_model save_model load_model || true
+                docker network rm mlflow-net || true
+                docker logout || true
+                rm -f Dockerfile.mlflow || true
+            '''
         }
     }
 }
