@@ -4,9 +4,10 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'hamzachaieb01/ml-pipeline'
         DOCKER_TAG = 'latest'
-        FINAL_IMAGE = 'hamzachaieb01/ml-trained'
-        MLFLOW_SERVER_IMAGE = 'hamzachaieb01/mlflow-server'
+        FINAL_IMAGE = 'hamzachaieb01/ml-trained-mlflow'
+        MLFLOW_IMAGE = 'hamzachaieb01/mlflow-server'
         EMAIL_TO = 'hitthetarget735@gmail.com'
+        MLFLOW_DB = 'mlflow.db'
     }
     
     options {
@@ -31,12 +32,27 @@ pipeline {
             }
         }
         
-        stage('Create MLflow Directory') {
+        stage('Linting & Code Quality') {
             steps {
-                sh '''
-                    rm -rf ${WORKSPACE}/mlflow_data
-                    mkdir -p ${WORKSPACE}/mlflow_data
-                '''
+                script {
+                    try {
+                        sh '''
+                            docker run -d --name linting ${DOCKER_IMAGE}:${DOCKER_TAG} flake8 . || true
+                            docker logs -f linting
+                            docker rm linting || true
+                            
+                            docker run -d --name formatting ${DOCKER_IMAGE}:${DOCKER_TAG} black . || true
+                            docker logs -f formatting
+                            docker rm formatting || true
+                            
+                            docker run -d --name security ${DOCKER_IMAGE}:${DOCKER_TAG} bandit -r . || true
+                            docker logs -f security
+                            docker rm security || true
+                        '''
+                    } catch (Exception e) {
+                        echo "Warning: Code quality checks failed but pipeline will continue"
+                    }
+                }
             }
         }
         
@@ -44,12 +60,8 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name prepare_data \
-                            -v ${WORKSPACE}/mlflow_data:/mlflow \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            python main.py prepare_data
+                        docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py prepare_data
                         docker logs -f prepare_data || true
-                        docker rm prepare_data || true
                     '''
                 }
             }
@@ -59,12 +71,8 @@ pipeline {
             steps {
                 timeout(time: 20, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name train_model \
-                            -v ${WORKSPACE}/mlflow_data:/mlflow \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            python main.py train_model
+                        docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py train_model
                         docker logs -f train_model || true
-                        docker rm train_model || true
                     '''
                 }
             }
@@ -74,12 +82,8 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name evaluate_model \
-                            -v ${WORKSPACE}/mlflow_data:/mlflow \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            python main.py evaluate_model
+                        docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py evaluate_model
                         docker logs -f evaluate_model || true
-                        docker rm evaluate_model || true
                     '''
                 }
             }
@@ -89,12 +93,8 @@ pipeline {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name save_model \
-                            -v ${WORKSPACE}/mlflow_data:/mlflow \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            python main.py save_model
+                        docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py save_model
                         docker logs -f save_model || true
-                        docker rm save_model || true
                     '''
                 }
             }
@@ -104,55 +104,53 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name load_model \
-                            -v ${WORKSPACE}/mlflow_data:/mlflow \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            python main.py load_model
+                        docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model
                         docker logs -f load_model || true
-                        docker rm load_model || true
                     '''
                 }
             }
         }
         
-        stage('Create MLflow Server Image') {
+        stage('Start MLflow Tracking Server') {
             steps {
-                script {
-                    sh '''
-                        # Create Dockerfile for MLflow server
-                        cat << EOF > Dockerfile.mlflow
-FROM ${DOCKER_IMAGE}:${DOCKER_TAG}
-
-# Copy MLflow data
-COPY mlflow_data/ /mlflow/
-
-# Set working directory
-WORKDIR /mlflow
-
-# Expose port
-EXPOSE 5000
-
-# Start MLflow server
-CMD ["mlflow", "ui", "--host", "0.0.0.0", "--port", "5000"]
-EOF
-
-                        # Build and push image
-                        docker build -t ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG} -f Dockerfile.mlflow .
-                        docker push ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
-                        echo "✅ MLflow server image created: ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}"
-                    '''
-                }
+                sh '''
+                    docker run -d --name mlflow_server -p 5000:5000 \
+                    -v $(pwd)/${MLFLOW_DB}:/mlflow/${MLFLOW_DB} \
+                    mlflow/mlflow:latest \
+                    mlflow ui --backend-store-uri sqlite:///${MLFLOW_DB} --host 0.0.0.0 --port 5000
+                '''
             }
         }
         
-        stage('Save Final Image') {
+        stage('Save MLflow Data and Final Image') {
             steps {
                 script {
                     retry(3) {
                         sh '''
+                            # Copy MLflow database to the working directory
+                            docker cp mlflow_server:/mlflow/${MLFLOW_DB} $(pwd)/${MLFLOW_DB}
+                            
+                            # Commit the container with the model and MLflow data into a new image
                             docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
+                            
+                            # Create a Dockerfile for the final image with MLflow
+                            cat > Dockerfile.final << 'EOF'
+FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+COPY ${MLFLOW_DB} /app/${MLFLOW_DB}
+CMD ["python", "main.py", "all"]
+EOF
+                            
+                            # Build the final image with MLflow data
+                            docker build -f Dockerfile.final -t ${FINAL_IMAGE}:${DOCKER_TAG} .
+                            
+                            # Push the final image to Docker Hub
                             docker push ${FINAL_IMAGE}:${DOCKER_TAG}
-                            echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
+                            
+                            echo "✅ Final image with MLflow data saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
                         '''
                     }
                 }
@@ -167,14 +165,16 @@ EOF
                 body: '''${SCRIPT, template="groovy-html.template"}
                 
                 Pipeline executed successfully!
-                Final image: ${FINAL_IMAGE}:${DOCKER_TAG}
-                MLflow Server: ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
-                
-                To view metrics & results:
-                docker run -d -p 5001:5000 ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
-                Then visit http://localhost:5001
+                Final image available at: ${FINAL_IMAGE}:${DOCKER_TAG}
+                MLflow UI available at: http://localhost:5000
                 
                 Check console output at $BUILD_URL to view the results.
+                
+                Changes:
+                ${CHANGES}
+                
+                Failed Tests:
+                ${FAILED_TESTS}
                 ''',
                 to: "${EMAIL_TO}",
                 recipientProviders: [[$class: 'DevelopersRecipientProvider']],
@@ -205,12 +205,11 @@ EOF
             echo "❌ Pipeline failed!"
         }
         always {
+            echo "Pipeline execution complete!"
             sh '''
-                # Cleanup
-                docker rm -f prepare_data train_model evaluate_model save_model load_model || true
-                rm -rf ${WORKSPACE}/mlflow_data
-                rm -f Dockerfile.mlflow
-                docker logout
+                docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model mlflow_server || true
+                docker logout || true
+                docker system prune -f || true
             '''
         }
     }
