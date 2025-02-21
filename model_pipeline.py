@@ -65,13 +65,25 @@ def train_model(X_train, y_train):
 
 def evaluate_model(model, X_test, y_test):
     """
-    Evaluate the model and print classification metrics.
+    Evaluate the model and return classification metrics.
     """
     predictions = model.predict(X_test)
+    
+    # Calculate metrics
+    metrics = {
+        "accuracy": accuracy_score(y_test, predictions),
+        "precision": precision_score(y_test, predictions),
+        "recall": recall_score(y_test, predictions),
+        "f1": f1_score(y_test, predictions)
+    }
+    
     print("\nClassification Report:")
     print(classification_report(y_test, predictions))
+    
     print("\nConfusion Matrix:")
     print(confusion_matrix(y_test, predictions))
+    
+    return metrics
 
 
 def save_model(model, filename="model.joblib"):
