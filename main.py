@@ -14,10 +14,10 @@ test_file = "churn-bigml-20.csv"
 
 def run_full_pipeline():
     """Execute the complete ML pipeline."""
-    with mlflow.start_run() as run:
-        print("Running full pipeline...")
-        
+    with mlflow.start_run(run_name="full_pipeline") as run:
         mlflow.set_experiment("churn_prediction")
+        
+        print("Running full pipeline...")
         mlflow.log_param("train_file", train_file)
         mlflow.log_param("test_file", test_file)
         
@@ -52,9 +52,11 @@ def main():
     
     args = parser.parse_args()
     
+    # Set MLflow experiment
     mlflow.set_experiment("churn_prediction")
     
-    with mlflow.start_run() as run:
+    # Execute based on argument
+    with mlflow.start_run(run_name=args.action) as run:
         if args.action == "prepare_data":
             print("\n🔹 Preparing data...")
             X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
