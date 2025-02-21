@@ -87,22 +87,38 @@ EOF
             }
         }
 
-        stage('Start MLflow Server') {
-            steps {
-                script {
-                    sh '''
-                        docker run -d --name mlflow \
-                            --network mlflow-net \
-                            -p 5000:5000 \
-                            -v mlflow_data:/mlflow \
-                            ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
-                            
-                        # Wait for MLflow to start
-                        sleep 10
-                    '''
-                }
-            }
+    ('Start MLflow Server') {
+    steps {
+        script {
+            sh '''
+                # Check if port 5000 is in use and kill the process if needed
+                if lsof -i:5000 -t >/dev/null 2>&1; then
+                    echo "Port 5000 is in use. Killing process..."
+                    lsof -i:5000 -t | xargs kill -9
+                fi
+                
+                # Remove existing mlflow container if it exists
+                docker rm -f mlflow || true
+                
+                # Start MLflow server
+                docker run -d --name mlflow \
+                    --network mlflow-net \
+                    -p 5000:5000 \
+                    -v mlflow_data:/mlflow \
+                    ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                    
+                # Wait for MLflow to start and verify it's running
+                for i in $(seq 1 30); do
+                    if curl -s http://localhost:5000/ > /dev/null; then
+                        echo "MLflow server is up!"
+                        break
+                    fi
+                    sleep 1
+                done
+            '''
         }
+    }
+}
         
         stage('Prepare Data') {
             steps {
