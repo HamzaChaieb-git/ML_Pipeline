@@ -106,10 +106,10 @@ EOF
                 body: '''${SCRIPT, template="groovy-html.template"}
                 
                 Pipeline executed successfully!
-                MLflow Server image: ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                MLflow Server image: "${MLFLOW_SERVER_IMAGE}":"${DOCKER_TAG}"
                 
                 To view ML metrics and results:
-                docker run -d -p 5001:5000 ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+                docker run -d -p 5001:5000 "${MLFLOW_SERVER_IMAGE}":"${DOCKER_TAG}"
                 Then visit http://localhost:5001
                 
                 Check console output at $BUILD_URL to view the results.
