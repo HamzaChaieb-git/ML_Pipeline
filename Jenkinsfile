@@ -23,16 +23,13 @@ pipeline {
             }
         }
         
-        stage('Create MLflow Server Image') {
-            steps {
-                script {
-                    sh '''
-                        # Create MLflow server Dockerfile
-                        cat << EOF > Dockerfile.mlflow
-FROM python:3.9-slim
-
-# Install MLflow
-RUN pip install mlflow
+       stage('Create MLflow Server Image') {
+    steps {
+        script {
+            sh '''
+                # Create MLflow server Dockerfile
+                cat << EOF > Dockerfile.mlflow
+FROM ${DOCKER_IMAGE}:${DOCKER_TAG}
 
 # Create directory for MLflow data
 WORKDIR /mlflow
@@ -44,13 +41,13 @@ EXPOSE 5000
 CMD ["mlflow", "ui", "--host", "0.0.0.0", "--port", "5000"]
 EOF
 
-                        # Build and push MLflow server image
-                        docker build -t ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG} -f Dockerfile.mlflow .
-                        docker push ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
-                    '''
-                }
-            }
+                # Build and push MLflow server image
+                docker build -t ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG} -f Dockerfile.mlflow .
+                docker push ${MLFLOW_SERVER_IMAGE}:${DOCKER_TAG}
+            '''
         }
+    }
+}
         
         stage('Pull Docker Image') {
             steps {
