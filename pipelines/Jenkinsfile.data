@@ -30,14 +30,17 @@ pipeline {
                     try {
                         // Create data processor container
                         docker run --name data_processor \
-                            ${BASE_IMAGE}:${TAG} \
-                            bash -c "python -u -m main prepare_data"
+                            "${BASE_IMAGE}:${TAG}" \
+                            bash -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
                         
                         // Create /app directory if it doesn’t exist and ensure proper permissions
                         docker exec data_processor mkdir -p /app
                         sh "docker exec data_processor chmod 777 /app"
                         
-                        // Save processed data in new image
+                        // Wait briefly to ensure output is written
+                        sleep 5
+                        
+                        // Save processed data in new image with output
                         docker commit data_processor ${DATA_IMAGE}:${TAG}-logs
                         docker push ${DATA_IMAGE}:${TAG}-logs
                         
