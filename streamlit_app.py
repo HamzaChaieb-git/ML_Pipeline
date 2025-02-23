@@ -21,11 +21,11 @@ with st.form("prediction_form"):
         total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, max_value=500.0, value=200.0)
         number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, max_value=100, value=0)
         voice_mail_plan = st.selectbox("Voice Mail Plan", ["No", "Yes"])
-
+    
     submitted = st.form_submit_button("Predict Churn")
-
+    
     if submitted:
-        # Prepare the input data
+        # Prepare the input data with keys matching ChurnPredictionInput
         input_data = {
             "Total_day_minutes": total_day_minutes,
             "Customer_service_calls": customer_service_calls,
@@ -36,7 +36,6 @@ with st.form("prediction_form"):
             "Number_vmail_messages": number_vmail_messages,
             "Voice_mail_plan": voice_mail_plan
         }
-
         try:
             # Make prediction request
             response = requests.post("http://localhost:8000/predict", json=input_data)
@@ -63,20 +62,6 @@ with st.form("prediction_form"):
                 except:
                     st.error(f"Server response: {e.response.text}")
             st.error("Please check if the API server is running and all inputs are valid.")
-
-# Add some custom styling
-st.markdown("""
-    <style>
-    .stButton>button {
-        width: 100%;
-        background-color: #4CAF50;
-        color: white;
-    }
-    .stTextInput>div>div>input {
-        color: #4CAF50;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
 # Add footer
 st.markdown("---")
