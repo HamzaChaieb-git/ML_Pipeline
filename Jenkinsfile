@@ -32,25 +32,25 @@ pipeline {
                     // Get the current requirements.txt content
                     def currentRequirements = readFile requirementsFile
                     
-                    // Try to get the requirements.txt from the last successful build's artifacts using copyArtifacts
+                    // Try to get the requirements.txt from the last successful build's artifacts
                     def lastSuccessfulBuild = currentBuild.getPreviousSuccessfulBuild()
                     if (lastSuccessfulBuild != null) {
-                        // Use copyArtifacts to get requirements.txt from the last successful build
-                        step([
-                            $class: 'CopyArtifact',
-                            projectName: env.JOB_NAME,
-                            filter: requirementsFile,
-                            target: '.',
-                            selector: [$class: 'SpecificBuildSelector', buildNumber: lastSuccessfulBuild.number.toString()]
-                        ])
+                        // Use the archived artifact from the last successful build
+                        def lastBuildNumber = lastSuccessfulBuild.number
+                        def lastRequirementsPath = "${JENKINS_HOME}/jobs/${JOB_NAME}/builds/${lastBuildNumber}/archive/${requirementsFile}"
                         
-                        // Read the copied requirements.txt (if it exists)
-                        def lastRequirements = fileExists(requirementsFile) ? readFile(requirementsFile).trim() : null
-                        if (lastRequirements != null && lastRequirements != currentRequirements.trim()) {
-                            requirementsChanged = true
-                            echo "Requirements have changed. Rebuilding Docker image..."
+                        // Check if the archived file exists and read it
+                        if (fileExists(lastRequirementsPath)) {
+                            def lastRequirements = readFile(lastRequirementsPath).trim()
+                            if (lastRequirements != currentRequirements.trim()) {
+                                requirementsChanged = true
+                                echo "Requirements have changed. Rebuilding Docker image..."
+                            } else {
+                                echo "Requirements have not changed. Skipping rebuild."
+                            }
                         } else {
-                            echo "Requirements have not changed. Skipping rebuild."
+                            echo "No archived requirements.txt found from last build. Rebuilding Docker image..."
+                            requirementsChanged = true
                         }
                     } else {
                         // No previous successful build, so rebuild by default
