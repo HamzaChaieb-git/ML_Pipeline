@@ -104,6 +104,9 @@ pipeline {
                 script {
                     env.FAILED_STAGE_NAME = 'Tag Final Images'
                     sh """
+                        # Re-authenticate before pushing
+                        echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin
+                        
                         docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:final
                         docker tag ${DATA_IMAGE}:latest-logs ${DATA_IMAGE}:final
                         docker tag ${MODEL_IMAGE}:latest-logs ${MODEL_IMAGE}:final
