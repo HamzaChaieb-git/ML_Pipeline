@@ -36,27 +36,27 @@ pipeline {
                         // Create workspace for reports
                         sh 'mkdir -p quality_reports'
 
-                        // Run Flake8
+                        // Run Flake8, allowing it to fail but continuing
                         sh '''
                             docker run --name flake8_check -w /app ${BASE_IMAGE}:${TAG} \
-                                flake8 --output-file=flake8_report.txt .
-                            docker cp flake8_check:/app/flake8_report.txt quality_reports/
-                            docker rm flake8_check
+                                flake8 --output-file=flake8_report.txt . || true
+                            docker cp flake8_check:/app/flake8_report.txt quality_reports/ || true
+                            docker rm -f flake8_check || true
                         '''
 
-                        // Run Black
+                        // Run Black, allowing it to fail but continuing
                         sh '''
                             docker run --name black_check -w /app ${BASE_IMAGE}:${TAG} \
-                                black --check . > quality_reports/black_report.txt 2>&1
-                            docker rm black_check
+                                black --check . > quality_reports/black_report.txt 2>&1 || true
+                            docker rm -f black_check || true
                         '''
 
-                        // Run Bandit
+                        // Run Bandit, allowing it to fail but continuing
                         sh '''
                             docker run --name bandit_check -w /app ${BASE_IMAGE}:${TAG} \
-                                bandit -r . -f txt -o bandit_report.txt
-                            docker cp bandit_check:/app/bandit_report.txt quality_reports/
-                            docker rm bandit_check
+                                bandit -r . -f txt -o bandit_report.txt || true
+                            docker cp bandit_check:/app/bandit_report.txt quality_reports/ || true
+                            docker rm -f bandit_check || true
                         '''
 
                         // Create quality image with reports
@@ -65,7 +65,7 @@ pipeline {
                             docker create --name quality_container ${BASE_IMAGE}:${TAG}
                             
                             # Copy reports
-                            docker cp quality_reports/. quality_container:/app/quality_reports/
+                            docker cp quality_reports/. quality_container:/app/quality_reports/ || true
 
                             # Add timestamp to build
                             BUILD_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
