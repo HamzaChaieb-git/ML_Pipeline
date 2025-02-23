@@ -58,7 +58,7 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py prepare_data
+                        docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main prepare_data
                         docker logs -f prepare_data || true
                     '''
                 }
@@ -69,7 +69,7 @@ pipeline {
             steps {
                 timeout(time: 20, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py train_model
+                        docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main train_model
                         docker logs -f train_model || true
                     '''
                 }
@@ -80,7 +80,7 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py evaluate_model
+                        docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main evaluate_model
                         docker logs -f evaluate_model || true
                     '''
                 }
@@ -91,7 +91,7 @@ pipeline {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py save_model
+                        docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main save_model
                         docker logs -f save_model || true
                     '''
                 }
@@ -102,7 +102,7 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
-                        docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python main.py load_model
+                        docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main load_model
                         docker logs -f load_model || true
                     '''
                 }
