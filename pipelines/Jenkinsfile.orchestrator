@@ -48,12 +48,14 @@ pipeline {
         stage('Data Pipeline') {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    def dataBuild = build job: 'Data Pipeline',
-                          parameters: [
-                              string(name: 'VERSION', value: "${BUILD_VERSION}")
-                          ],
-                          propagate: true
-                    echo "Data pipeline completed with result: ${dataBuild.result}"
+                    script {
+                        def dataBuild = build job: 'Data Pipeline',
+                            parameters: [
+                                string(name: 'VERSION', value: "${BUILD_VERSION}")
+                            ],
+                            propagate: true
+                        echo "Data pipeline completed with result: ${dataBuild.result}"
+                    }
                 }
             }
         }
@@ -64,14 +66,16 @@ pipeline {
             }
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    def trainingBuild = build job: 'Training Pipeline',
-                        parameters: [
-                            string(name: 'VERSION', value: "${BUILD_VERSION}"),
-                            string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}-logs")
-                        ],
-                        propagate: true
-                    archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
-                    echo "Training pipeline completed with result: ${trainingBuild.result}"
+                    script {
+                        def trainingBuild = build job: 'Training Pipeline',
+                            parameters: [
+                                string(name: 'VERSION', value: "${BUILD_VERSION}"),
+                                string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}-logs")
+                            ],
+                            propagate: true
+                        archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
+                        echo "Training pipeline completed with result: ${trainingBuild.result}"
+                    }
                 }
             }
         }
