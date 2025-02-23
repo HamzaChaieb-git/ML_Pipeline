@@ -4,6 +4,7 @@ import xgboost as xgb
 import mlflow
 import mlflow.xgboost
 import pandas as pd
+import numpy as np
 from typing import Any, Union
 
 
@@ -50,11 +51,14 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
         for col in categorical_columns:
             X_train[col] = X_train[col].astype('category')
 
-    # Fit the model
+    # Create evaluation set
+    eval_set = [(X_train, y_train)]
+
+    # Fit the model (removed eval_metric as it's not a valid parameter for sklearn API)
     model.fit(
         X_train, 
         y_train,
-        eval_metric=['logloss', 'error'],
+        eval_set=eval_set,
         verbose=True
     )
 
