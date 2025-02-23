@@ -7,7 +7,7 @@ pipeline {
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         BUILD_VERSION = "${BUILD_NUMBER}-${new Date().format('yyyyMMdd')}"
-        DOCKER_CREDENTIALS = credentials('docker-hub-credentials') // Add Docker Hub credentials to Jenkins
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
     }
     
     options {
@@ -135,7 +135,7 @@ pipeline {
                     Check console output at ${BUILD_URL} to view the results.
                     
                     Changes:
-                    ${CHANGES, hideEmpty=true}
+                    \${currentBuild.changeSets.isEmpty() ? 'No changes in this build' : env.CHANGE_SET ?: CHANGES}
                 """,
                 to: "${EMAIL_TO}",
                 recipientProviders: [[$class: 'DevelopersRecipientProvider']],
