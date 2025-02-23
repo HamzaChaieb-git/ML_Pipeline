@@ -33,7 +33,7 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Start quality checker container
+                        // Run quality checker container with quality checks
                         docker run --name quality_checker \
                             "${BASE_IMAGE}:${TAG}" \
                             bash -c "flake8 . && black --check . && bandit -r . -f txt"
@@ -42,6 +42,9 @@ pipeline {
                     } catch (Exception e) {
                         echo "Error during quality checks: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
+                    } finally {
+                        // Ensure container is removed even if the stage fails
+                        sh 'docker rm -f quality_checker || true'
                     }
                 }
             }
@@ -55,21 +58,21 @@ pipeline {
                         if [ -f flake8_report.txt ]; then
                             cat flake8_report.txt
                         else
-                            echo "No Flake8 issues found"
+                            echo "No Flake8 issues found or report not generated"
                         fi
                         
                         echo -e "\\n=== Black Results ==="
                         if [ -f black_report.txt ]; then
                             cat black_report.txt
                         else
-                            echo "No Black issues found"
+                            echo "No Black issues found or report not generated"
                         fi
                         
                         echo -e "\\n=== Bandit Results ==="
                         if [ -f bandit_report.txt ]; then
                             cat bandit_report.txt
                         else
-                            echo "No Bandit issues found"
+                            echo "No Bandit issues found or report not generated"
                         fi
                     '''
                 }
@@ -80,9 +83,8 @@ pipeline {
     post {
         always {
             sh '''#!/bin/bash
-                docker rm -f quality_checker || true
-                docker logout
-                docker system prune -f
+                docker logout || true
+                docker system prune -f || true
             '''
             
             cleanWs()
