@@ -1,3 +1,5 @@
+"""Main module for running the ML pipeline."""
+
 import argparse
 import os
 import mlflow
@@ -84,7 +86,7 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         nargs="?",
         default="all",
-        help="Action to perform: prepare_data, train_model, evaluate_model, save_model, load_model, or run all steps by default."
+        help="Action to perform: prepare_data, train_model, evaluate_model, save_model, load_model, or run all steps."
     )
     return parser.parse_args()
 
@@ -120,7 +122,7 @@ def main() -> None:
         elif args.action == "all":
             run_full_pipeline(train_file, test_file)
         else:
-            print("\n❌ Invalid action! Choose from: prepare_data, train_model, evaluate_model, save_model, load_model, or leave blank to run all.")
+            print("\n❌ Invalid action! Choose from: prepare_data, train_model, evaluate_model, save_model, load_model.")
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         sys.exit(1)
