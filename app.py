@@ -74,9 +74,26 @@ def preprocess_data(df):
     df_processed = df.copy()
     
     # Encode categorical variables
-    le = LabelEncoder()
     categorical_features = ['International plan', 'Voice mail plan']
+    
+    # Rename columns to match expected feature names
+    column_mapping = {
+        'Total_day_minutes': 'Total day minutes',
+        'Customer_service_calls': 'Customer service calls',
+        'International_plan': 'International plan',
+        'Total_intl_minutes': 'Total intl minutes',
+        'Total_intl_calls': 'Total intl calls',
+        'Total_eve_minutes': 'Total eve minutes',
+        'Number_vmail_messages': 'Number vmail messages',
+        'Voice_mail_plan': 'Voice mail plan'
+    }
+    df_processed = df_processed.rename(columns=column_mapping)
+    
+    # Encode categorical variables
+    le = LabelEncoder()
     for feature in categorical_features:
+        # Convert to string to ensure consistent encoding
+        df_processed[feature] = df_processed[feature].astype(str)
         df_processed[feature] = le.fit_transform(df_processed[feature])
     
     return df_processed
