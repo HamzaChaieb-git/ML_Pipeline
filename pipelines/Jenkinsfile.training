@@ -1,4 +1,4 @@
-// pipelines/training-pipeline.groovy
+// pipelines/Jenkinsfile.training
 pipeline {
     agent any
     
@@ -7,14 +7,34 @@ pipeline {
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
-        MLFLOW_TRACKING_URI = 'http://mlflow:5000'  // Adjust as needed
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
+        WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
+    }
+    
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
     }
     
     stages {
         stage('Docker Login') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                               usernameVariable: 'DOCKER_USERNAME', 
+                               passwordVariable: 'DOCKER_PASSWORD')]) {
                     sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+        
+        stage('Pull Images') {
+            steps {
+                script {
+                    // Pull both base and data images
+                    sh """
+                        docker pull ${BASE_IMAGE}:${TAG}
+                        docker pull ${DATA_IMAGE}:${TAG}
+                    """
                 }
             }
         }
@@ -22,33 +42,78 @@ pipeline {
         stage('Train Model') {
             steps {
                 script {
-                    sh '''
-                        # Train using processed data from data pipeline
-                        docker run --name model_trainer \
-                            -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                            --volumes-from data_processor \
-                            ${BASE_IMAGE}:${TAG} \
-                            python -m main train_model
+                    try {
+                        // Create container from data image
+                        sh """
+                            docker create --name data_container ${DATA_IMAGE}:${TAG}
+                        """
+                        
+                        // Run training using data from data container
+                        sh """
+                            docker run --name model_trainer \
+                                -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                                --volumes-from data_container \
+                                ${BASE_IMAGE}:${TAG} \
+                                python -m main train_model
+                        """
+                        
+                        // Evaluate model
+                        sh """
+                            docker exec model_trainer \
+                                python -m main evaluate_model
+                        """
+                        
+                        // Save model artifacts
+                        sh """
+                            docker exec model_trainer \
+                                python -m main save_model
+                        """
+                        
+                        // Get training timestamp
+                        def timestamp = sh(
+                            script: 'date +%Y%m%d_%H%M%S',
+                            returnStdout: true
+                        ).trim()
+                        
+                        // Get model metrics
+                        def metrics = sh(
+                            script: '''
+                                docker exec model_trainer cat model_metrics.txt 2>/dev/null || echo "accuracy=0.0"
+                            ''',
+                            returnStdout: true
+                        ).trim()
+                        
+                        def accuracy = sh(
+                            script: """echo "${metrics}" | grep -oP 'accuracy=\\K[0-9.]+'""",
+                            returnStdout: true
+                        ).trim()
+                        
+                        // Create and push model images with metrics
+                        sh """
+                            # Commit container to new image
+                            docker commit \
+                                -c 'LABEL training.timestamp=${timestamp}' \
+                                -c 'LABEL model.accuracy=${accuracy}' \
+                                model_trainer ${MODEL_IMAGE}:${TAG}
                             
-                        # Evaluate model
-                        docker exec model_trainer python -m main evaluate_model
-                        
-                        # Save model
-                        docker exec model_trainer python -m main save_model
-                        
-                        # Create new image with trained model
-                        docker commit model_trainer ${MODEL_IMAGE}:${TAG}
-                        docker push ${MODEL_IMAGE}:${TAG}
-                        
-                        # Tag with model metrics
-                        ACCURACY=$(docker exec model_trainer cat model_metrics.txt | grep accuracy | cut -d' ' -f2)
-                        docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${ACCURACY}
-                        docker push ${MODEL_IMAGE}:accuracy-${ACCURACY}
-                        
-                        echo "✅ Training complete. Images pushed:"
-                        echo "- ${MODEL_IMAGE}:${TAG}"
-                        echo "- ${MODEL_IMAGE}:accuracy-${ACCURACY}"
-                    '''
+                            # Tag with metrics
+                            docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${accuracy}
+                            docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
+                            
+                            # Push all tags
+                            docker push ${MODEL_IMAGE}:${TAG}
+                            docker push ${MODEL_IMAGE}:accuracy-${accuracy}
+                            docker push ${MODEL_IMAGE}:${timestamp}
+                            
+                            echo "✅ Training complete. Images pushed:"
+                            echo "- ${MODEL_IMAGE}:${TAG}"
+                            echo "- ${MODEL_IMAGE}:accuracy-${accuracy}"
+                            echo "- ${MODEL_IMAGE}:${timestamp}"
+                        """
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        error "Model training failed: ${e.message}"
+                    }
                 }
             }
         }
@@ -58,11 +123,18 @@ pipeline {
         always {
             sh '''
                 docker rm -f model_trainer || true
-                docker logout || true
+                docker rm -f data_container || true
+                docker logout
+                docker system prune -f
             '''
+            
+            cleanWs()
         }
         success {
-            echo "Training pipeline complete. Model available in image: ${MODEL_IMAGE}:${TAG}"
+            echo "Training pipeline completed successfully"
+        }
+        failure {
+            echo "Training pipeline failed"
         }
     }
 }
