@@ -32,10 +32,20 @@ pipeline {
                     // Get the current requirements.txt content
                     def currentRequirements = readFile requirementsFile
                     
-                    // Try to get the requirements.txt from the last successful build's artifacts
+                    // Try to get the requirements.txt from the last successful build's artifacts using copyArtifacts
                     def lastSuccessfulBuild = currentBuild.getPreviousSuccessfulBuild()
                     if (lastSuccessfulBuild != null) {
-                        def lastRequirements = lastSuccessfulBuild.getArtifact('requirements.txt')?.read()?.trim()
+                        // Use copyArtifacts to get requirements.txt from the last successful build
+                        step([
+                            $class: 'CopyArtifact',
+                            projectName: env.JOB_NAME,
+                            filter: requirementsFile,
+                            target: '.',
+                            selector: [$class: 'SpecificBuildSelector', buildNumber: lastSuccessfulBuild.number.toString()]
+                        ])
+                        
+                        // Read the copied requirements.txt (if it exists)
+                        def lastRequirements = fileExists(requirementsFile) ? readFile(requirementsFile).trim() : null
                         if (lastRequirements != null && lastRequirements != currentRequirements.trim()) {
                             requirementsChanged = true
                             echo "Requirements have changed. Rebuilding Docker image..."
