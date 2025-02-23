@@ -59,19 +59,24 @@ pipeline {
                             docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
                             
                             # Wait briefly to ensure output is written
-                            sleep 2
+                            sleep 5  # Increased from 2 to ensure file writing completes
                             
-                            # Get the run ID from training output, handle empty or missing file
+                            # Check if train_output.txt exists
+                            if [ ! -f /app/train_output.txt ]; then
+                                echo "ERROR: train_output.txt not found in /app/"
+                                exit 1
+                            fi
+                            
+                            # Get the run ID from training output, handle empty or missing line
                             RUN_ID=\$(grep 'MLflow run ID:' /app/train_output.txt | awk '{print \$NF}' || echo '')
                             if [ -z "\$RUN_ID" ]; then
                                 echo "WARNING: Could not find MLflow run ID in train_output.txt. Checking MLflow logs..."
                                 RUN_ID=\$(docker exec model_trainer python3 -c '
 import mlflow
 client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
-runs = client.list_run_infos(experiment_id="0")  # Adjust experiment_id as needed
-for run in runs:
-    print(run.run_id)
-' | tail -n 1 || echo '')
+runs = client.search_runs(experiment_ids=["0"])  # Use search_runs instead of list_run_infos
+print(runs[0].info.run_id if runs else "")
+' || echo '')
                                 if [ -z "\$RUN_ID" ]; then
                                     echo "ERROR: Failed to retrieve MLflow run ID"
                                     exit 1
@@ -99,8 +104,8 @@ for run in runs:
                                     docker exec model_trainer python3 -c '
 import mlflow
 client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
-runs = client.list_run_infos(experiment_id="0")  # Adjust experiment_id as needed
-print([run.run_id for run in runs][-1] if runs else "")
+runs = client.search_runs(experiment_ids=["0"])  # Use search_runs
+print(runs[0].info.run_id if runs else "")
 '
                                 """,
                                 returnStdout: true
