@@ -39,36 +39,47 @@ pipeline {
                         
                         // Run Flake8
                         sh '''
-                            # Run flake8 and write output directly
-                            docker run --name flake8_check ${BASE_IMAGE}:${TAG} flake8 . > quality_reports/flake8_report.txt 2>&1
-                            docker rm -f flake8_check || true
-                            
-                            # Run black
-                            docker run --name black_check ${BASE_IMAGE}:${TAG} black . --check > quality_reports/black_report.txt 2>&1
-                            docker rm -f black_check || true
-                            
-                            # Run bandit
-                            docker run --name bandit_check ${BASE_IMAGE}:${TAG} bandit -r . > quality_reports/bandit_report.txt 2>&1
-                            docker rm -f bandit_check || true
-                            
-                            # Create temporary container for quality reports
+                            docker run --name flake8_check -w /app ${BASE_IMAGE}:${TAG} \
+                                flake8 --output-file=flake8_report.txt .
+                            docker cp flake8_check:/app/flake8_report.txt quality_reports/
+                            docker rm flake8_check
+                        '''
+                        
+                        // Run Black
+                        sh '''
+                            docker run --name black_check -w /app ${BASE_IMAGE}:${TAG} \
+                                black --check . > quality_reports/black_report.txt 2>&1 || true
+                            docker rm black_check
+                        '''
+                        
+                        // Run Bandit
+                        sh '''
+                            docker run --name bandit_check -w /app ${BASE_IMAGE}:${TAG} \
+                                bandit -r . -f txt -o bandit_report.txt
+                            docker cp bandit_check:/app/bandit_report.txt quality_reports/
+                            docker rm bandit_check
+                        '''
+                        
+                        // Create quality image with reports
+                        sh '''
+                            # Create container for reports
                             docker create --name quality_container ${BASE_IMAGE}:${TAG}
                             
-                            # Copy reports into container
-                            docker cp quality_reports/. quality_container:/quality_reports/
+                            # Copy reports
+                            docker cp quality_reports/. quality_container:/app/quality_reports/
                             
-                            # Commit and push new image
+                            # Commit and push
                             docker commit quality_container ${QUALITY_IMAGE}:${TAG}
-                            docker push ${QUALITY_IMAGE}:${TAG}
+                            docker tag ${QUALITY_IMAGE}:${TAG} ${QUALITY_IMAGE}:$(date +%Y%m%d)
                             
-                            # Tag with date
-                            CURRENT_DATE=$(date +%Y%m%d)
-                            docker tag ${QUALITY_IMAGE}:${TAG} ${QUALITY_IMAGE}:${CURRENT_DATE}
-                            docker push ${QUALITY_IMAGE}:${CURRENT_DATE}
+                            # Push images
+                            docker push ${QUALITY_IMAGE}:${TAG}
+                            docker push ${QUALITY_IMAGE}:$(date +%Y%m%d)
                         '''
                     } catch (Exception e) {
+                        echo "Error during quality checks: ${e.message}"
                         currentBuild.result = 'FAILURE'
-                        error "Code quality checks failed: ${e.message}"
+                        throw e
                     }
                 }
             }
@@ -77,16 +88,15 @@ pipeline {
         stage('Analyze Reports') {
             steps {
                 script {
-                    // Read and display reports
                     sh '''
                         echo "=== Flake8 Results ==="
-                        cat quality_reports/flake8_report.txt || true
+                        cat quality_reports/flake8_report.txt || echo "No Flake8 report found"
                         
-                        echo "=== Black Results ==="
-                        cat quality_reports/black_report.txt || true
+                        echo "\\n=== Black Results ==="
+                        cat quality_reports/black_report.txt || echo "No Black report found"
                         
-                        echo "=== Bandit Results ==="
-                        cat quality_reports/bandit_report.txt || true
+                        echo "\\n=== Bandit Results ==="
+                        cat quality_reports/bandit_report.txt || echo "No Bandit report found"
                     '''
                 }
             }
@@ -95,20 +105,17 @@ pipeline {
     
     post {
         always {
-            // Clean up
             sh '''
                 docker rm -f quality_container || true
                 docker rm -f flake8_check black_check bandit_check || true
-                docker logout || true
-                docker system prune -f || true
+                docker logout
+                docker system prune -f
             '''
             
-            // Archive reports
             archiveArtifacts artifacts: 'quality_reports/**/*', 
                            allowEmptyArchive: true,
                            fingerprint: true
             
-            // Clean workspace
             cleanWs()
         }
         success {
