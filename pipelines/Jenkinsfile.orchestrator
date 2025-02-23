@@ -1,0 +1,158 @@
+// pipelines/orchestrator-pipeline.groovy
+pipeline {
+    agent any
+    
+    environment {
+        EMAIL_TO = 'hitthetarget735@gmail.com'
+        QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
+        DATA_IMAGE = 'hamzachaieb01/ml-data'
+        MODEL_IMAGE = 'hamzachaieb01/ml-model'
+        BUILD_VERSION = "${BUILD_NUMBER}-${new Date().format('yyyyMMdd')}"
+    }
+    
+    options {
+        timeout(time: 4, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('Code Quality Pipeline') {
+            steps {
+                script {
+                    try {
+                        def qualityBuild = build job: 'ML_Code_Quality_Pipeline',
+                            propagate: false,
+                            wait: true
+                            
+                        if (qualityBuild.result != 'SUCCESS') {
+                            input message: 'Code quality checks failed. Continue anyway?', ok: 'Yes'
+                        }
+                    } catch (Exception e) {
+                        echo "Quality pipeline failed but continuing: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        stage('Data Pipeline') {
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    build job: 'ML_Data_Pipeline',
+                          parameters: [
+                              string(name: 'VERSION', value: "${BUILD_VERSION}")
+                          ]
+                }
+            }
+        }
+        
+        stage('Training Pipeline') {
+            when {
+                expression { currentBuild.result != 'FAILURE' }
+            }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    build job: 'ML_Training_Pipeline',
+                          parameters: [
+                              string(name: 'VERSION', value: "${BUILD_VERSION}"),
+                              string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
+                          ]
+                }
+            }
+        }
+        
+        stage('Verify Images') {
+            steps {
+                script {
+                    // Check if all required images exist
+                    sh """
+                        docker pull ${QUALITY_IMAGE}:${BUILD_VERSION} || exit 1
+                        docker pull ${DATA_IMAGE}:${BUILD_VERSION} || exit 1
+                        docker pull ${MODEL_IMAGE}:${BUILD_VERSION} || exit 1
+                        
+                        echo "✅ All pipeline artifacts verified successfully"
+                    """
+                }
+            }
+        }
+        
+        stage('Tag Final Images') {
+            when {
+                expression { currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                script {
+                    // Tag all images as latest if build successful
+                    sh """
+                        docker tag ${QUALITY_IMAGE}:${BUILD_VERSION} ${QUALITY_IMAGE}:latest
+                        docker tag ${DATA_IMAGE}:${BUILD_VERSION} ${DATA_IMAGE}:latest
+                        docker tag ${MODEL_IMAGE}:${BUILD_VERSION} ${MODEL_IMAGE}:latest
+                        
+                        docker push ${QUALITY_IMAGE}:latest
+                        docker push ${DATA_IMAGE}:latest
+                        docker push ${MODEL_IMAGE}:latest
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            emailext (
+                subject: 'ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS',
+                body: '''${SCRIPT, template="groovy-html.template"}
+                
+                Complete ML Pipeline executed successfully!
+                
+                Build Version: ${BUILD_VERSION}
+                
+                Images Available:
+                - Quality: ${QUALITY_IMAGE}:${BUILD_VERSION}
+                - Data: ${DATA_IMAGE}:${BUILD_VERSION}
+                - Model: ${MODEL_IMAGE}:${BUILD_VERSION}
+                
+                Check console output at ${BUILD_URL} to view the results.
+                
+                Changes:
+                ${CHANGES}
+                ''',
+                to: "${EMAIL_TO}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                attachLog: true,
+                compressLog: true
+            )
+        }
+        failure {
+            emailext (
+                subject: 'ML Pipeline - Build #${BUILD_NUMBER} - FAILURE',
+                body: '''${SCRIPT, template="groovy-html.template"}
+                
+                Pipeline execution failed!
+                
+                Build Version: ${BUILD_VERSION}
+                Failed Stage: ${FAILED_STAGE}
+                
+                Check console output at ${BUILD_URL} to view the results.
+                
+                Error Message:
+                ${BUILD_LOG}
+                ''',
+                to: "${EMAIL_TO}",
+                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                attachLog: true,
+                compressLog: true
+            )
+        }
+        always {
+            echo "Pipeline execution complete!"
+            
+            // Clean up Docker images
+            sh """
+                docker rmi ${QUALITY_IMAGE}:${BUILD_VERSION} || true
+                docker rmi ${DATA_IMAGE}:${BUILD_VERSION} || true
+                docker rmi ${MODEL_IMAGE}:${BUILD_VERSION} || true
+                docker system prune -f || true
+            """
+        }
+    }
+}
