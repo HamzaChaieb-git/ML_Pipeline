@@ -62,3 +62,10 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
 
     print("🔹 Data preparation complete")
     return X_train, X_test, y_train, y_test
+
+# Optional MLflow logging placeholder (uncomment if needed)
+"""
+import mlflow
+mlflow.log_param("train_file", train_file)
+mlflow.log_param("test_file", test_file)
+"""
