@@ -58,7 +58,7 @@ pipeline {
                                 if [ -f /app/data_processor_logs.txt ]; then
                                     mv /app/data_processor_logs.txt /app/data_output.txt
                                 else
-                                    echo "ERROR: No logs or output available. Creating empty placeholder..."
+                                    echo "WARNING: No logs or output available. Creating empty placeholder..."
                                     echo "No data output generated" > /app/data_output.txt
                                 fi
                             fi
