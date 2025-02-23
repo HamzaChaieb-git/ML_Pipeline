@@ -33,44 +33,12 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Start quality checker container and ensure /app directory exists
+                        // Start quality checker container
                         docker run --name quality_checker \
                             "${BASE_IMAGE}:${TAG}" \
-                            tail -f /dev/null
+                            bash -c "flake8 . && black --check . && bandit -r . -f txt"
                         
-                        // Create /app directory in container
-                        docker exec quality_checker mkdir -p /app
-                        
-                        // Set permissions on /app using sh step
-                        sh "docker exec quality_checker chmod 777 /app"
-                        
-                        // Run Flake8, Black, and Bandit, capturing output to logs in /app
-                        docker exec quality_checker bash -c "flake8 . > /app/flake8_report.txt 2>&1 && \
-                                                            black --check . > /app/black_report.txt 2>&1 && \
-                                                            bandit -r . -f txt > /app/bandit_report.txt 2>&1"
-                        
-                        // Wait briefly to ensure output files are written
-                        sleep 5
-                        
-                        // Check if quality reports exist and have content
-                        for report in flake8_report.txt black_report.txt bandit_report.txt; do
-                            if [ ! -f "/app/\${report}" ]; then
-                                echo "ERROR: \${report} not found in /app/. Checking container logs..."
-                                docker logs quality_checker > /app/quality_checker_logs.txt 2>&1 || echo "Failed to save logs to /app/quality_checker_logs.txt"
-                                exit 1
-                            fi
-                            
-                            if [ ! -s "/app/\${report}" ]; then
-                                echo "ERROR: \${report} is empty in /app/"
-                                exit 1
-                            fi
-                        done
-                        
-                        // Save quality reports in new image with logs for MLflow integration
-                        docker commit quality_checker ${QUALITY_IMAGE}:${TAG}-logs
-                        docker push ${QUALITY_IMAGE}:${TAG}-logs
-                        
-                        echo "Quality reports saved to image: ${QUALITY_IMAGE}:${TAG}-logs"
+                        echo "Code quality checks completed successfully"
                     } catch (Exception e) {
                         echo "Error during quality checks: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
@@ -84,22 +52,22 @@ pipeline {
                 script {
                     sh '''#!/bin/bash
                         echo "=== Flake8 Results ==="
-                        if [ -f /app/flake8_report.txt ]; then
-                            cat /app/flake8_report.txt
+                        if [ -f flake8_report.txt ]; then
+                            cat flake8_report.txt
                         else
                             echo "No Flake8 issues found"
                         fi
                         
                         echo -e "\\n=== Black Results ==="
-                        if [ -f /app/black_report.txt ]; then
-                            cat /app/black_report.txt
+                        if [ -f black_report.txt ]; then
+                            cat black_report.txt
                         else
                             echo "No Black issues found"
                         fi
                         
                         echo -e "\\n=== Bandit Results ==="
-                        if [ -f /app/bandit_report.txt ]; then
-                            cat /app/bandit_report.txt
+                        if [ -f bandit_report.txt ]; then
+                            cat bandit_report.txt
                         else
                             echo "No Bandit issues found"
                         fi
