@@ -131,16 +131,16 @@ pipeline {
                     script {
                         env.FAILED_STAGE_NAME = 'Log to MLflow'
                         sh """
-                            # Run ml-data:final to log data output
+                            # Set MLflow tracking URI in the container environment
                             docker run -d --name data_container ${DATA_IMAGE}:final tail -f /dev/null
-                            docker exec data_container bash -c "python -u -m main prepare_data"
+                            docker exec data_container bash -c "export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}; python -u -m main prepare_data"
                             docker rm -f data_container
 
-                            # Run ml-model:final to log training and evaluation outputs
+                            # Set MLflow tracking URI in the container environment
                             docker run -d --name model_container ${MODEL_IMAGE}:final tail -f /dev/null
-                            docker exec model_container bash -c "python -u -m main train_model"
-                            docker exec model_container bash -c "python -u -m main evaluate_model"
-                            docker exec model_container bash -c "python -u -m main save_model"
+                            docker exec model_container bash -c "export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}; python -u -m main train_model"
+                            docker exec model_container bash -c "export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}; python -u -m main evaluate_model"
+                            docker exec model_container bash -c "export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}; python -u -m main save_model"
                             docker rm -f model_container
                         """
                     }
