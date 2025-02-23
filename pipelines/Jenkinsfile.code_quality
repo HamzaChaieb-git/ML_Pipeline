@@ -35,7 +35,7 @@ pipeline {
                     try {
                         // Start quality checker container and ensure /app directory exists
                         docker run --name quality_checker \
-                            ${BASE_IMAGE}:${TAG} \
+                            "${BASE_IMAGE}:${TAG}" \
                             tail -f /dev/null
                         
                         // Create /app directory in container and ensure proper permissions
