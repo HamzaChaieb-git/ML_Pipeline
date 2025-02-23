@@ -9,7 +9,6 @@ pipeline {
     }
     
     options {
-        timeout(time: 1, unit: 'HOURS')
         disableConcurrentBuilds()
     }
     
@@ -26,14 +25,12 @@ pipeline {
         
         stage('Pull Docker Image') {
             steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    retry(3) {
-                        script {
-                            echo "Pulling image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                            sh '''
-                                docker pull ${DOCKER_IMAGE}:${DOCKER_TAG} || true
-                            '''
-                        }
+                retry(3) {
+                    script {
+                        echo "Pulling image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                        sh '''
+                            docker pull ${DOCKER_IMAGE}:${DOCKER_TAG} || true
+                        '''
                     }
                 }
             }
@@ -65,56 +62,46 @@ pipeline {
         
         stage('Prepare Data') {
             steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    sh '''
-                        docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main prepare_data
-                        docker logs -f prepare_data || true
-                    '''
-                }
+                sh '''
+                    docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main prepare_data
+                    docker logs -f prepare_data || true
+                '''
             }
         }
         
         stage('Train Model') {
             steps {
-                timeout(time: 20, unit: 'MINUTES') {
-                    sh '''
-                        docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main train_model
-                        docker logs -f train_model || true
-                    '''
-                }
+                sh '''
+                    docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main train_model
+                    docker logs -f train_model || true
+                '''
             }
         }
         
         stage('Evaluate Model') {
             steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    sh '''
-                        docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main evaluate_model
-                        docker logs -f evaluate_model || true
-                    '''
-                }
+                sh '''
+                    docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main evaluate_model
+                    docker logs -f evaluate_model || true
+                '''
             }
         }
         
         stage('Save Model') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    sh '''
-                        docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main save_model
-                        docker logs -f save_model || true
-                    '''
-                }
+                sh '''
+                    docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main save_model
+                    docker logs -f save_model || true
+                '''
             }
         }
         
         stage('Load Model & Re-Evaluate') {
             steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    sh '''
-                        docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main load_model
-                        docker logs -f load_model || true
-                    '''
-                }
+                sh '''
+                    docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main load_model
+                    docker logs -f load_model || true
+                '''
             }
         }
         
