@@ -7,6 +7,7 @@ pipeline {
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
         WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
+        MLFLOW_TRACKING_URI = 'http://localhost:5001' // MLflow on host
     }
     
     options {
@@ -44,26 +45,30 @@ pipeline {
                             # Create data container
                             docker create --name data_container ${DATA_IMAGE}:${TAG}
                             
-                            # Create model trainer container and ensure /app directory exists
+                            # Run model trainer container with host network to access localhost:5001
                             docker run -d --name model_trainer \
+                                --network host \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
+                            
+                            # Set MLflow tracking URI inside the container
+                            docker exec model_trainer sh -c "export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}"
                             
                             # Create /app directory if it doesn’t exist and ensure proper permissions
                             docker exec model_trainer mkdir -p /app
                             docker exec model_trainer chmod 777 /app
                             
-                            # Train model and capture output
+                            # Train model and log to MLflow
                             docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
                             
                             # Wait to ensure output is written
                             sleep 10
                             
-                            # Check if train_output.txt exists inside the container
+                            # Check if train_output.txt exists
                             if ! docker exec model_trainer test -f /app/train_output.txt; then
                                 echo "ERROR: train_output.txt not found in /app/. Checking container logs..."
-                                docker logs model_trainer > train_logs.txt 2>&1 || echo "Failed to save logs to train_logs.txt"
+                                docker logs model_trainer > train_logs.txt 2>&1 || echo "Failed to save logs"
                                 exit 1
                             fi
                             
@@ -74,15 +79,15 @@ pipeline {
                             
                             # Get the run ID from training output (optional)
                             RUN_ID=\$(docker exec model_trainer grep 'MLflow run ID:' /app/train_output.txt | awk '{print \$NF}' || echo 'no_run_id')
-                            echo "Training Run ID (if applicable): \$RUN_ID"
+                            echo "Training Run ID: \$RUN_ID"
                             
-                            # Evaluate model
+                            # Evaluate model and log to MLflow
                             docker exec model_trainer sh -c "python -u -m main evaluate_model > /app/model_output.txt 2>&1"
                             
-                            # Save model
+                            # Save model and log artifact to MLflow
                             docker exec model_trainer python -m main save_model
                             
-                            # Save logs and metrics to image
+                            # Commit and push the updated image
                             docker commit model_trainer ${MODEL_IMAGE}:${TAG}-logs
                             docker push ${MODEL_IMAGE}:${TAG}-logs
                         """
@@ -107,7 +112,7 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "Training pipeline completed successfully"
+            echo "Training pipeline completed successfully. Check MLflow at ${MLFLOW_TRACKING_URI}"
         }
         failure {
             echo "Training pipeline failed"
