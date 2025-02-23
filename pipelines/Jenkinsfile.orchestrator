@@ -19,6 +19,7 @@ pipeline {
         stage('Docker Login') {
             steps {
                 script {
+                    env.FAILED_STAGE_NAME = 'Docker Login'
                     sh 'echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin'
                 }
             }
@@ -85,91 +86,4 @@ pipeline {
             steps {
                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
                     script {
-                        env.FAILED_STAGE_NAME = 'Verify Images'
-                        sh """
-                            docker pull ${QUALITY_IMAGE}:latest
-                            docker pull ${DATA_IMAGE}:${BUILD_VERSION}-logs
-                            docker pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs
-                            echo "✅ All pipeline artifacts verified successfully"
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Tag Final Images') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
-            steps {
-                script {
-                    sh """
-                        docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:${BUILD_VERSION}
-                        docker tag ${DATA_IMAGE}:${BUILD_VERSION}-logs ${DATA_IMAGE}:${BUILD_VERSION}
-                        docker tag ${MODEL_IMAGE}:${BUILD_VERSION}-logs ${MODEL_IMAGE}:${BUILD_VERSION}
-                        
-                        docker push ${QUALITY_IMAGE}:${BUILD_VERSION}
-                        docker push ${DATA_IMAGE}:${BUILD_VERSION}
-                        docker push ${MODEL_IMAGE}:${BUILD_VERSION}
-                        
-                        docker tag ${QUALITY_IMAGE}:${BUILD_VERSION} ${QUALITY_IMAGE}:latest
-                        docker tag ${DATA_IMAGE}:${BUILD_VERSION} ${DATA_IMAGE}:latest
-                        docker tag ${MODEL_IMAGE}:${BUILD_VERSION} ${MODEL_IMAGE}:latest
-                        
-                        docker push ${QUALITY_IMAGE}:latest
-                        docker push ${DATA_IMAGE}:latest
-                        docker push ${MODEL_IMAGE}:latest
-                    """
-                }
-            }
-        }
-    }
-    
-    post {
-        success {
-            emailext (
-                subject: "ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS",
-                body: """
-                    Complete ML Pipeline executed successfully!
-                    Build Version: ${BUILD_VERSION}
-                    Images Available:
-                    - Quality: ${QUALITY_IMAGE}:${BUILD_VERSION}
-                    - Data: ${DATA_IMAGE}:${BUILD_VERSION}
-                    - Model: ${MODEL_IMAGE}:${BUILD_VERSION}
-                    Check console output at ${BUILD_URL} to view the results.
-                """,
-                to: "${EMAIL_TO}",
-                attachLog: true,
-                compressLog: true
-            )
-        }
-        failure {
-            emailext (
-                subject: "ML Pipeline - Build #${BUILD_NUMBER} - FAILURE",
-                body: """
-                    Pipeline execution failed!
-                    Build Version: ${BUILD_VERSION}
-                    Failed Stage: ${env.FAILED_STAGE_NAME ?: 'Unknown'}
-                    Check console output at ${BUILD_URL} to view the results.
-                    The full build log is attached.
-                """,
-                to: "${EMAIL_TO}",
-                attachLog: true,
-                compressLog: true
-            )
-        }
-        always {
-            echo "Pipeline execution complete!"
-            sh """
-                docker rmi ${QUALITY_IMAGE}:${BUILD_VERSION} || true
-                docker rmi ${DATA_IMAGE}:${BUILD_VERSION} || true
-                docker rmi ${MODEL_IMAGE}:${BUILD_VERSION} || true
-                docker rmi ${DATA_IMAGE}:${BUILD_VERSION}-logs || true
-                docker rmi ${MODEL_IMAGE}:${BUILD_VERSION}-logs || true
-                docker logout || true
-                docker system prune -f || true
-            """
-            cleanWs()
-        }
-    }
-}
+                        env
