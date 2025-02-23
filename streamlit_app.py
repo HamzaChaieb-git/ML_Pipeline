@@ -11,47 +11,30 @@ with st.form("prediction_form"):
     col1, col2 = st.columns(2)
     
     with col1:
-        gender = st.selectbox("Gender", ["Male", "Female"])
-        senior_citizen = st.selectbox("Senior Citizen", [0, 1])
-        partner = st.selectbox("Partner", ["Yes", "No"])
-        dependents = st.selectbox("Dependents", ["Yes", "No"])
-        tenure = st.number_input("Tenure (months)", min_value=0)
-        phone_service = st.selectbox("Phone Service", ["Yes", "No"])
-        multiple_lines = st.selectbox("Multiple Lines", ["Yes", "No", "No phone service"])
-        internet_service = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+        total_day_minutes = st.number_input("Total Day Minutes", min_value=0.0, max_value=500.0, value=100.0)
+        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, max_value=10, value=1)
+        international_plan = st.selectbox("International Plan", ["No", "Yes"])
+        total_intl_minutes = st.number_input("Total International Minutes", min_value=0.0, max_value=100.0, value=10.0)
     
     with col2:
-        online_security = st.selectbox("Online Security", ["Yes", "No", "No internet service"])
-        online_backup = st.selectbox("Online Backup", ["Yes", "No", "No internet service"])
-        device_protection = st.selectbox("Device Protection", ["Yes", "No", "No internet service"])
-        tech_support = st.selectbox("Tech Support", ["Yes", "No", "No internet service"])
-        contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
-        paperless_billing = st.selectbox("Paperless Billing", ["Yes", "No"])
-        payment_method = st.selectbox("Payment Method", 
-            ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"])
-        monthly_charges = st.number_input("Monthly Charges", min_value=0.0)
+        total_intl_calls = st.number_input("Total International Calls", min_value=0, max_value=100, value=3)
+        total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, max_value=500.0, value=200.0)
+        number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, max_value=100, value=0)
+        voice_mail_plan = st.selectbox("Voice Mail Plan", ["No", "Yes"])
 
     submitted = st.form_submit_button("Predict Churn")
 
     if submitted:
         # Prepare the input data
         input_data = {
-            "gender": gender,
-            "SeniorCitizen": senior_citizen,
-            "Partner": partner,
-            "Dependents": dependents,
-            "tenure": tenure,
-            "PhoneService": phone_service,
-            "MultipleLines": multiple_lines,
-            "InternetService": internet_service,
-            "OnlineSecurity": online_security,
-            "OnlineBackup": online_backup,
-            "DeviceProtection": device_protection,
-            "TechSupport": tech_support,
-            "Contract": contract,
-            "PaperlessBilling": paperless_billing,
-            "PaymentMethod": payment_method,
-            "MonthlyCharges": monthly_charges
+            "Total day minutes": total_day_minutes,
+            "Customer service calls": customer_service_calls,
+            "International plan": international_plan,
+            "Total intl minutes": total_intl_minutes,
+            "Total intl calls": total_intl_calls,
+            "Total eve minutes": total_eve_minutes,
+            "Number vmail messages": number_vmail_messages,
+            "Voice mail plan": voice_mail_plan
         }
 
         try:
@@ -79,6 +62,7 @@ with st.form("prediction_form"):
                     st.error(f"Server response: {e.response.json()}")
                 except:
                     st.error(f"Server response: {e.response.text}")
+            st.error("Please check if the API server is running and all inputs are valid.")
 
 # Add some custom styling
 st.markdown("""
@@ -88,5 +72,12 @@ st.markdown("""
         background-color: #4CAF50;
         color: white;
     }
+    .stTextInput>div>div>input {
+        color: #4CAF50;
+    }
     </style>
     """, unsafe_allow_html=True)
+
+# Add footer
+st.markdown("---")
+st.markdown("Customer Churn Prediction Model © 2024")
