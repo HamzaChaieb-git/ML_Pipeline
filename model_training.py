@@ -6,6 +6,20 @@ import mlflow.xgboost
 import pandas as pd
 import numpy as np
 from typing import Any, Union
+from sklearn.metrics import log_loss
+
+
+class MetricCallback:
+    def __init__(self):
+        self.evaluation_results = {}
+
+    def callback(self, env):
+        """Log metrics at each iteration"""
+        for data, metric in env.evaluation_result_list:
+            metric_name = f"{data}-{metric}"
+            value = env.evaluation_result_list[0][2]
+            mlflow.log_metric(metric_name, value, step=env.iteration)
+            self.evaluation_results[env.iteration] = value
 
 
 def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClassifier:
@@ -51,19 +65,31 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
         for col in categorical_columns:
             X_train[col] = X_train[col].astype('category')
 
-    # Create evaluation set
+    # Create evaluation set and callback
     eval_set = [(X_train, y_train)]
+    metric_callback = MetricCallback()
 
-    # Fit the model (removed eval_metric as it's not a valid parameter for sklearn API)
+    # Fit the model
     model.fit(
         X_train, 
         y_train,
         eval_set=eval_set,
-        verbose=True
+        verbose=True,
+        callbacks=[metric_callback.callback]
     )
 
-    # Log the model to MLflow
-    mlflow.xgboost.log_model(model, "xgboost_model")
+    # Log training metrics
+    y_pred_prob = model.predict_proba(X_train)
+    train_loss = log_loss(y_train, y_pred_prob)
+    mlflow.log_metric("final_train_logloss", train_loss)
+
+    # Log the model to MLflow with signature
+    input_example = X_train.iloc[:5] if isinstance(X_train, pd.DataFrame) else X_train[:5]
+    mlflow.xgboost.log_model(
+        model, 
+        "xgboost_model",
+        input_example=input_example
+    )
     
     # Log feature importance
     if isinstance(X_train, pd.DataFrame):
