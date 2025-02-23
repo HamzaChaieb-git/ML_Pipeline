@@ -1,0 +1,135 @@
+// pipelines/code-quality-pipeline.groovy
+pipeline {
+    agent any
+    
+    environment {
+        BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
+        QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
+        TAG = 'latest'
+    }
+    
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+        
+        stage('Pull Base Image') {
+            steps {
+                retry(3) {
+                    sh 'docker pull ${BASE_IMAGE}:${TAG}'
+                }
+            }
+        }
+        
+        stage('Code Quality Checks') {
+            steps {
+                script {
+                    try {
+                        // Create workspace for reports
+                        sh 'mkdir -p quality_reports'
+                        
+                        // Run Flake8
+                        sh '''
+                            docker run -d --name flake8_check ${BASE_IMAGE}:${TAG} flake8 . --output-file=/app/flake8_report.txt || true
+                            docker cp flake8_check:/app/flake8_report.txt quality_reports/
+                            docker rm -f flake8_check || true
+                        '''
+                        
+                        // Run Black
+                        sh '''
+                            docker run -d --name black_check ${BASE_IMAGE}:${TAG} black . --check || true
+                            docker logs black_check > quality_reports/black_report.txt 2>&1
+                            docker rm -f black_check || true
+                        '''
+                        
+                        // Run Bandit
+                        sh '''
+                            docker run -d --name security_check ${BASE_IMAGE}:${TAG} bandit -r . -f txt || true
+                            docker logs security_check > quality_reports/bandit_report.txt 2>&1
+                            docker rm -f security_check || true
+                        '''
+                        
+                        // Create and push quality image with reports
+                        sh '''
+                            # Create temporary container
+                            docker create --name quality_container ${BASE_IMAGE}:${TAG}
+                            
+                            # Copy reports into container
+                            docker cp quality_reports/. quality_container:/app/quality_reports/
+                            
+                            # Commit and push new image
+                            docker commit quality_container ${QUALITY_IMAGE}:${TAG}
+                            docker push ${QUALITY_IMAGE}:${TAG}
+                            
+                            # Tag with date
+                            CURRENT_DATE=$(date +%Y%m%d)
+                            docker tag ${QUALITY_IMAGE}:${TAG} ${QUALITY_IMAGE}:${CURRENT_DATE}
+                            docker push ${QUALITY_IMAGE}:${CURRENT_DATE}
+                            
+                            echo "✅ Quality checks complete. Images pushed:"
+                            echo "- ${QUALITY_IMAGE}:${TAG}"
+                            echo "- ${QUALITY_IMAGE}:${CURRENT_DATE}"
+                        '''
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        error "Code quality checks failed: ${e.message}"
+                    }
+                }
+            }
+        }
+        
+        stage('Analyze Reports') {
+            steps {
+                script {
+                    def flake8Report = readFile('quality_reports/flake8_report.txt')
+                    def blackReport = readFile('quality_reports/black_report.txt')
+                    def banditReport = readFile('quality_reports/bandit_report.txt')
+                    
+                    echo "=== Flake8 Results ==="
+                    echo flake8Report
+                    
+                    echo "=== Black Results ==="
+                    echo blackReport
+                    
+                    echo "=== Bandit Results ==="
+                    echo banditReport
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up
+            sh '''
+                docker rm -f quality_container || true
+                docker logout || true
+                docker system prune -f || true
+            '''
+            
+            // Archive reports
+            archiveArtifacts artifacts: 'quality_reports/**/*', 
+                           allowEmptyArchive: true,
+                           fingerprint: true
+            
+            // Clean workspace
+            cleanWs()
+        }
+        success {
+            echo "Code quality pipeline completed successfully"
+            echo "Quality reports available in image: ${QUALITY_IMAGE}:${TAG}"
+        }
+        failure {
+            echo "Code quality pipeline failed"
+        }
+    }
+}
