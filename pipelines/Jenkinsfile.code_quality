@@ -36,15 +36,21 @@ pipeline {
                     try {
                         sh 'mkdir -p quality_reports'
                         
-                        # Run Flake8, Black, and Bandit, capturing output to logs
+                        # Run Flake8, Black, and Bandit, capturing output to logs in /app
                         docker run --name quality_checker \
                             -v "${WORKSPACE}":/workspace \
                             -w /workspace \
-                            --network ml_network \
                             ${BASE_IMAGE}:${TAG} \
                             bash -c "flake8 . > /app/flake8_report.txt 2>&1 && \
                                     black --check . > /app/black_report.txt 2>&1 && \
                                     bandit -r . -f txt > /app/bandit_report.txt 2>&1"
+                        
+                        # Create /app directory in container and ensure permissions (if not already done)
+                        docker exec quality_checker mkdir -p /app
+                        docker exec quality_checker chmod 777 /app
+                        
+                        # Copy quality reports to /app for logging
+                        docker exec quality_checker cp /workspace/quality_reports/*.txt /app/
                         
                         # Save quality reports in new image
                         docker commit quality_checker ${QUALITY_IMAGE}:${TAG}-logs
