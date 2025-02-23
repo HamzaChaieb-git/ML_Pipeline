@@ -157,7 +157,7 @@ ${metrics}
 EOF
                         """
                         
-                        // Create and push model images with all metrics
+                        // Create and push a single model image with all metrics as labels
                         withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
                                        usernameVariable: 'DOCKER_USERNAME', 
                                        passwordVariable: 'DOCKER_PASSWORD')]) {
@@ -165,28 +165,17 @@ EOF
                                 # Re-login to ensure credentials are fresh
                                 echo "\$DOCKER_PASSWORD" | docker login -u "\$DOCKER_USERNAME" --password-stdin
                                 
-                                # Commit container with all metrics
+                                # Commit container with all metrics as labels
                                 docker commit \
                                     -c 'LABEL training.timestamp=${timestamp}' \
                                     ${labelArgs} \
                                     model_trainer ${MODEL_IMAGE}:${TAG}
                                 
-                                # Create tags for important metrics
-                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}
-                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:f1_weighted-${metricsMap.weighted_avg_f1}
-                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
-                                
-                                # Push all tags
+                                # Push only the latest tag
                                 docker push ${MODEL_IMAGE}:${TAG}
-                                docker push ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}
-                                docker push ${MODEL_IMAGE}:f1_weighted-${metricsMap.weighted_avg_f1}
-                                docker push ${MODEL_IMAGE}:${timestamp}
                                 
-                                echo "✅ Training complete. Images pushed:"
+                                echo "✅ Training complete. Image pushed:"
                                 echo "- ${MODEL_IMAGE}:${TAG}"
-                                echo "- ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}"
-                                echo "- ${MODEL_IMAGE}:f1_weighted-${metricsMap.weighted_avg_f1}"
-                                echo "- ${MODEL_IMAGE}:${timestamp}"
                                 echo "\\nModel Metrics:"
                                 echo '${metrics}' | python3 -m json.tool
                             """
@@ -210,11 +199,11 @@ EOF
                 docker rm -f model_trainer || true
                 docker rm -f data_container || true
                 
-                # Keep only latest 2 versions
+                # Keep only latest version (since we only push one image)
                 REPO="hamzachaieb01/ml-model"
-                KEEP_LATEST=2
+                KEEP_LATEST=1
                 
-                # Get list of timestamped tags
+                # Get list of timestamped tags (though we only keep 'latest' now)
                 TAGS=$(docker images $REPO --format '{{.Tag}}' | grep '^[0-9]' | sort -r)
                 
                 # Remove old tags
@@ -225,9 +214,10 @@ EOF
                     done
                 fi
                 
-                # Remove any incomplete tags
+                # Remove any incomplete or legacy tags
                 docker rmi $(docker images "$REPO" -f "reference=*accuracy-" -q) 2>/dev/null || true
-                docker rmi $(docker images "$REPO" -f "reference=*accuracy-0.0" -q) 2>/dev/null || true
+                docker rmi $(docker images "$REPO" -f "reference=*f1_weighted-" -q) 2>/dev/null || true
+                docker rmi $(docker images "$REPO" -f "reference=*timestamp-" -q) 2>/dev/null || true
                 
                 # Cleanup
                 docker logout
