@@ -5,8 +5,8 @@ import mlflow
 import mlflow.xgboost
 import pandas as pd
 import numpy as np
-from typing import Any, Union
-from sklearn.metrics import log_loss
+from typing import Any, Union, Dict
+from sklearn.metrics import log_loss, accuracy_score
 
 def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClassifier:
     """
@@ -39,7 +39,7 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
         "tree_method": "hist",           # Use histogram-based algorithm for faster training
     }
     
-    # Log parameters to MLflow
+    # Log hyperparameters to MLflow
     mlflow.log_params(params)
 
     # Initialize and train the model
@@ -54,19 +54,18 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
     # Fit the model
     model.fit(X_train, y_train, verbose=True)
 
-    # Log training metrics
+    # Calculate and log training metrics
+    y_pred = model.predict(X_train)
     y_pred_proba = model.predict_proba(X_train)
-    train_loss = log_loss(y_train, y_pred_proba)
-    mlflow.log_metric("train_logloss", train_loss)
-
-    # Log the model to MLflow
-    input_example = X_train.iloc[:5] if isinstance(X_train, pd.DataFrame) else X_train[:5]
-    mlflow.xgboost.log_model(
-        model, 
-        "xgboost_model",
-        input_example=input_example
-    )
     
+    train_metrics = {
+        "train_accuracy": accuracy_score(y_train, y_pred),
+        "train_logloss": log_loss(y_train, y_pred_proba)
+    }
+    
+    # Log training metrics
+    mlflow.log_metrics(train_metrics)
+
     # Log feature importance
     if isinstance(X_train, pd.DataFrame):
         feature_importance = pd.DataFrame({
@@ -74,12 +73,24 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
             'importance': model.feature_importances_
         }).sort_values('importance', ascending=False)
         
-        # Log feature importance as a JSON file
+        # Save feature importance
+        feature_importance.to_csv("feature_importance.csv")
         feature_importance.to_json("feature_importance.json")
+        
+        # Log feature importance artifacts
+        mlflow.log_artifact("feature_importance.csv")
         mlflow.log_artifact("feature_importance.json")
         
-        # Log feature importance scores
+        # Log individual feature importance scores
         for feature, importance in zip(feature_importance['feature'], feature_importance['importance']):
-            mlflow.log_metric(f"feature_importance_{feature}", importance)
+            mlflow.log_metric(f"importance_{feature}", importance)
+    
+    # Log model with proper signature
+    signature = mlflow.models.signature.infer_signature(X_train, y_pred)
+    mlflow.xgboost.log_model(
+        model, 
+        "model",
+        signature=signature
+    )
     
     return model
