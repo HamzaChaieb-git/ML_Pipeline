@@ -36,6 +36,12 @@ pipeline {
                             docker exec data_processor mkdir -p /app
                             docker exec data_processor chmod 777 /app
                             
+                            # Test MLflow connectivity before processing (optional, if prepare_data logs to MLflow)
+                            docker exec data_processor python -c "import mlflow; client = mlflow.MlflowClient('${MLFLOW_TRACKING_URI}'); print(client.list_experiments())" > /app/mlflow_test.txt 2>&1
+                            if [ ! -s /app/mlflow_test.txt ]; then
+                                echo "WARNING: MLflow server at ${MLFLOW_TRACKING_URI} is unreachable, but continuing..."
+                            fi
+                            
                             # Process data and capture output
                             docker exec data_processor sh -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
                             
