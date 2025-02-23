@@ -1,66 +1,196 @@
 pipeline {
     agent any
-
+    
     environment {
-        BASE_IMAGE = 'hamzachaieb01/ml-pipeline:latest'
-        DATA_IMAGE = 'hamzachaieb01/ml-data'
+        EMAIL_TO = 'hitthetarget735@gmail.com'
+        BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
+        DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
-        MLFLOW_TRACKING_URI = 'http://localhost:5001'
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
+        HOST_IP = '172.25.175.49' // Your host IP
     }
-
+    
+    options {
+        timeout(time: 4, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+    
     stages {
         stage('Docker Login') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                    script {
+                        env.FAILED_STAGE_NAME = 'Docker Login'
+                        sh 'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin'
+                    }
                 }
             }
         }
-
-        stage('Process Data') {
+        
+        stage('Code Quality Pipeline') {
             steps {
-                sh """
-                    docker run -d --name data_processing ${BASE_IMAGE} tail -f /dev/null
-                    docker exec data_processing python -m main prepare_data
-                    docker commit data_processing ${DATA_IMAGE}:latest-logs
-                    docker push ${DATA_IMAGE}:latest-logs
-                    docker rm -f data_processing
-                """
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Code Quality Pipeline'
+                        def qualityBuild = build job: 'Code Quality Pipeline',
+                            propagate: false,
+                            wait: true
+                            
+                        if (qualityBuild.result != 'SUCCESS') {
+                            echo "Code quality checks failed with result: ${qualityBuild.result}"
+                            input message: 'Code quality checks failed. Continue anyway?', ok: 'Yes'
+                        } else {
+                            echo "Code quality pipeline completed successfully"
+                        }
+                    }
+                }
             }
         }
-
-        stage('Code Quality Checks') {
+        
+        stage('Data Pipeline') {
             steps {
-                sh """
-                    mkdir -p quality_reports
-                    docker run --name flake8_check ${BASE_IMAGE} flake8 --output-file=flake8_report.txt . || true
-                    docker cp flake8_check:/flake8_report.txt quality_reports/
-                    docker rm -f flake8_check
-                    docker create --name quality_container ${BASE_IMAGE}
-                    docker cp quality_reports/. quality_container:/quality_reports/
-                    docker commit quality_container ${QUALITY_IMAGE}:latest
-                    docker push ${QUALITY_IMAGE}:latest
-                    docker rm -f quality_container
-                """
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Data Pipeline'
+                        def dataBuild = build job: 'Data Pipeline',
+                            propagate: true
+                        echo "Data pipeline completed with result: ${dataBuild.result}"
+                    }
+                }
             }
         }
-
-        stage('Train Model') {
+        
+        stage('Training Pipeline') {
+            when {
+                expression { currentBuild.result != 'FAILURE' }
+            }
             steps {
-                sh """
-                    docker run --rm -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                        -v ${WORKSPACE}:/workspace ${DATA_IMAGE}:latest-logs python /workspace/train.py
-                    docker tag ${MODEL_IMAGE}:latest ${MODEL_IMAGE}:latest-logs
-                    docker push ${MODEL_IMAGE}:latest-logs
-                """
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Training Pipeline'
+                        def trainingBuild = build job: 'Training Pipeline',
+                            parameters: [
+                                string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:latest-logs")
+                            ],
+                            propagate: true
+                        echo "Training pipeline completed with result: ${trainingBuild.result}"
+                    }
+                }
+            }
+        }
+        
+        stage('Verify Images') {
+            steps {
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Verify Images'
+                        sh """
+                            echo "Attempting to pull ${QUALITY_IMAGE}:latest"
+                            docker pull ${QUALITY_IMAGE}:latest || { echo "Failed to pull ${QUALITY_IMAGE}:latest"; exit 1; }
+                            echo "Attempting to pull ${DATA_IMAGE}:latest-logs"
+                            docker pull ${DATA_IMAGE}:latest-logs || { echo "Failed to pull ${DATA_IMAGE}:latest-logs"; exit 1; }
+                            echo "Attempting to pull ${MODEL_IMAGE}:latest-logs"
+                            docker pull ${MODEL_IMAGE}:latest-logs || { echo "Failed to pull ${MODEL_IMAGE}:latest-logs"; exit 1; }
+                            echo "✅ All pipeline artifacts verified successfully"
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Tag Final Images') {
+            when {
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Tag Final Images'
+                        sh """
+                            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                            docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:final
+                            docker tag ${DATA_IMAGE}:latest-logs ${DATA_IMAGE}:final
+                            docker tag ${MODEL_IMAGE}:latest-logs ${MODEL_IMAGE}:final
+                            
+                            docker push ${QUALITY_IMAGE}:final
+                            docker push ${DATA_IMAGE}:final
+                            docker push ${MODEL_IMAGE}:final
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Host MLflow') {
+            steps {
+                script {
+                    env.FAILED_STAGE_NAME = 'Host MLflow'
+                    sh """
+                        # Create mlflow directory if it doesn't exist
+                        mkdir -p ${WORKSPACE}/mlflow
+
+                        # Start MLflow server on host IP
+                        docker run -d --name mlflow_server \
+                            -p ${HOST_IP}:5001:5001 \
+                            -v ${WORKSPACE}/mlflow:/mlflow \
+                            ${BASE_IMAGE}:latest \
+                            mlflow server \
+                                --host 0.0.0.0 \
+                                --port 5001 \
+                                --backend-store-uri sqlite:///mlflow/mlflow.db \
+                                --default-artifact-root /mlflow/artifacts
+
+                        echo "✅ MLflow UI is now available at http://${HOST_IP}:5001"
+                    """
+                }
             }
         }
     }
-
+    
     post {
+        success {
+            emailext (
+                subject: "ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS",
+                body: """
+                    Complete ML Pipeline executed successfully!
+                    Images Available:
+                    - Quality: ${QUALITY_IMAGE}:final
+                    - Data: ${DATA_IMAGE}:final
+                    - Model: ${MODEL_IMAGE}:final
+                    MLflow UI is available at: http://${HOST_IP}:5001
+                    Check console output at ${BUILD_URL} to view the results.
+                """,
+                to: "${EMAIL_TO}",
+                attachLog: true,
+                compressLog: true
+            )
+        }
+        failure {
+            emailext (
+                subject: "ML Pipeline - Build #${BUILD_NUMBER} - FAILURE",
+                body: """
+                    Pipeline execution failed!
+                    Failed Stage: ${env.FAILED_STAGE_NAME ?: 'Unknown'}
+                    Check console output at ${BUILD_URL} to view the results.
+                    The full build log is attached.
+                """,
+                to: "${EMAIL_TO}",
+                attachLog: true,
+                compressLog: true
+            )
+        }
         always {
-            sh 'docker logout'
+            script {
+                sh """
+                    docker rm -f mlflow_server || true
+                    docker rmi ${QUALITY_IMAGE}:final || true
+                    docker rmi ${DATA_IMAGE}:final || true
+                    docker rmi ${MODEL_IMAGE}:final || true
+                    docker logout || true
+                    docker system prune -f || true
+                """
+            }
             cleanWs()
         }
     }
