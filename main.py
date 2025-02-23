@@ -20,20 +20,20 @@ def prepare_data(train_file: str = "churn-bigml-80.csv", test_file: str = "churn
     print("🔹 Data preparation complete")
     return X_train, X_test, y_train, y_test
 
-def train_model(X_train, y_train, run_id=None):
+def train_model(X_train, y_train):
     """Train model using the actual implementation."""
     print("🔹 Training model...")
     model = train_xgb_model(X_train, y_train)
     print("🔹 Model training complete")
     return model
 
-def evaluate_model(model, X_test, y_test, run_id=None):
+def evaluate_model(model, X_test, y_test):
     """Evaluate model using the actual implementation."""
     print("🔹 Evaluating model...")
     evaluate_xgb_model(model, X_test, y_test)
     print("🔹 Evaluation complete")
 
-def save_model(model, run_id=None):
+def save_model(model):
     """Save model using the actual implementation."""
     print("🔹 Saving model...")
     save_xgb_model(model)
@@ -51,7 +51,7 @@ def run_full_pipeline(train_file: str, test_file: str) -> None:
     print("Running full pipeline...")
     
     # Single MLflow run for the entire pipeline
-    with mlflow.start_run(run_name="Full Pipeline") as run:
+    with mlflow.start_run(run_name="Full Pipeline") as parent_run:
         try:
             # Data preparation
             X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
@@ -60,17 +60,16 @@ def run_full_pipeline(train_file: str, test_file: str) -> None:
             with mlflow.start_run(run_name="Model Training", nested=True):
                 model = train_model(X_train, y_train)
             
-            # Evaluation
-            with mlflow.start_run(run_name="Model Evaluation", nested=True):
+            # First evaluation
+            with mlflow.start_run(run_name="Initial Evaluation", nested=True):
                 evaluate_model(model, X_test, y_test)
             
-            # Save model
-            with mlflow.start_run(run_name="Model Saving", nested=True):
-                save_model(model)
+            # Save model - using parent run
+            save_model(model)
             
             # Load and evaluate again
-            with mlflow.start_run(run_name="Model Loading", nested=True):
-                loaded_model = load_model()
+            loaded_model = load_model()
+            with mlflow.start_run(run_name="Final Evaluation", nested=True):
                 evaluate_model(loaded_model, X_test, y_test)
                 
         except Exception as e:
@@ -115,8 +114,8 @@ def main() -> None:
                 save_model(model)
         elif args.action == "load_model":
             with mlflow.start_run(run_name="Load Model Run"):
-                X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
                 loaded_model = load_model()
+                X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
                 evaluate_model(loaded_model, X_test, y_test)
         elif args.action == "all":
             run_full_pipeline(train_file, test_file)
