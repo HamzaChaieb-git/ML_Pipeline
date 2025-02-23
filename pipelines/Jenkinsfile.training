@@ -1,9 +1,13 @@
 pipeline {
     agent any
     
+    parameters {
+        string(name: 'VERSION', defaultValue: 'latest', description: 'Version tag for the image')
+        string(name: 'DATA_IMAGE', defaultValue: 'hamzachaieb01/ml-data:latest-logs', description: 'Data image to use')
+    }
+    
     environment {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
-        DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
         WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
@@ -30,7 +34,7 @@ pipeline {
                 script {
                     sh """
                         docker pull ${BASE_IMAGE}:${TAG}
-                        docker pull ${DATA_IMAGE}:${TAG}
+                        docker pull ${DATA_IMAGE}
                     """
                 }
             }
@@ -39,20 +43,22 @@ pipeline {
         stage('Train Model') {
             steps {
                 script {
+                    def modelImageLogs = "${env.MODEL_IMAGE}:${env.VERSION}-logs"
                     try {
                         sh """
-                            # Create data container
-                            docker create --name data_container ${DATA_IMAGE}:${TAG}
+                            # Create data container using the passed DATA_IMAGE
+                            docker create --name data_container ${DATA_IMAGE}
                             
                             # Create model trainer container and ensure /app directory exists
                             docker run -d --name model_trainer \
+                                -v ${WORKSPACE_SAFE}/metrics:/app/metrics \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
                             # Create /app directory if it doesn’t exist and ensure proper permissions
-                            docker exec model_trainer mkdir -p /app
-                            docker exec model_trainer chmod 777 /app
+                            docker exec model_trainer mkdir -p /app /app/metrics
+                            docker exec model_trainer chmod 777 /app /app/metrics
                             
                             # Train model and capture output
                             docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
@@ -83,8 +89,8 @@ pipeline {
                             docker exec model_trainer python -m main save_model
                             
                             # Save logs and metrics to image
-                            docker commit model_trainer ${MODEL_IMAGE}:${TAG}-logs
-                            docker push ${MODEL_IMAGE}:${TAG}-logs
+                            docker commit model_trainer ${modelImageLogs}
+                            docker push ${modelImageLogs}
                         """
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
