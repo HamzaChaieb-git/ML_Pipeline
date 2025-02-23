@@ -30,7 +30,6 @@ pipeline {
         stage('Pull Images') {
             steps {
                 script {
-                    // Pull both base and data images
                     sh """
                         docker pull ${BASE_IMAGE}:${TAG}
                         docker pull ${DATA_IMAGE}:${TAG}
@@ -43,43 +42,35 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Create container from data image
+                        // Create data container
                         sh """
                             docker create --name data_container ${DATA_IMAGE}:${TAG}
                         """
                         
-                        // Run training using data from data container
+                        // Create and start model trainer container
                         sh """
-                            docker run --name model_trainer \
+                            # Create container with a sleep command to keep it running
+                            docker run -d --name model_trainer \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
-                                python -m main train_model
+                                tail -f /dev/null
+                            
+                            # Train model
+                            docker exec model_trainer python -m main train_model
+                            
+                            # Evaluate model
+                            docker exec model_trainer python -m main evaluate_model
+                            
+                            # Save model
+                            docker exec model_trainer python -m main save_model
                         """
                         
-                        // Evaluate model
-                        sh """
-                            docker exec model_trainer \
-                                python -m main evaluate_model
-                        """
+                        // Get metrics and tag images
+                        def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // Save model artifacts
-                        sh """
-                            docker exec model_trainer \
-                                python -m main save_model
-                        """
-                        
-                        // Get training timestamp
-                        def timestamp = sh(
-                            script: 'date +%Y%m%d_%H%M%S',
-                            returnStdout: true
-                        ).trim()
-                        
-                        // Get model metrics
                         def metrics = sh(
-                            script: '''
-                                docker exec model_trainer cat model_metrics.txt 2>/dev/null || echo "accuracy=0.0"
-                            ''',
+                            script: 'docker exec model_trainer cat model_metrics.txt 2>/dev/null || echo "accuracy=0.0"',
                             returnStdout: true
                         ).trim()
                         
@@ -88,9 +79,9 @@ pipeline {
                             returnStdout: true
                         ).trim()
                         
-                        // Create and push model images with metrics
+                        // Create and push model images
                         sh """
-                            # Commit container to new image
+                            # Commit container to image
                             docker commit \
                                 -c 'LABEL training.timestamp=${timestamp}' \
                                 -c 'LABEL model.accuracy=${accuracy}' \
