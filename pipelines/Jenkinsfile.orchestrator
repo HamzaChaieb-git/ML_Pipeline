@@ -7,6 +7,7 @@ pipeline {
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         BUILD_VERSION = "${BUILD_NUMBER}-${new Date().format('yyyyMMdd')}"
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials') // Add Docker Hub credentials to Jenkins
     }
     
     options {
@@ -15,6 +16,14 @@ pipeline {
     }
     
     stages {
+        stage('Docker Login') {
+            steps {
+                script {
+                    sh 'echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin'
+                }
+            }
+        }
+        
         stage('Code Quality Pipeline') {
             steps {
                 script {
@@ -24,7 +33,10 @@ pipeline {
                             wait: true
                             
                         if (qualityBuild.result != 'SUCCESS') {
+                            echo "Code quality checks failed with result: ${qualityBuild.result}"
                             input message: 'Code quality checks failed. Continue anyway?', ok: 'Yes'
+                        } else {
+                            echo "Code quality pipeline completed successfully"
                         }
                     } catch (Exception e) {
                         echo "Quality pipeline failed but continuing: ${e.message}"
@@ -36,10 +48,12 @@ pipeline {
         stage('Data Pipeline') {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    build job: 'Data Pipeline',
+                    def dataBuild = build job: 'Data Pipeline',
                           parameters: [
                               string(name: 'VERSION', value: "${BUILD_VERSION}")
-                          ]
+                          ],
+                          propagate: true
+                    echo "Data pipeline completed with result: ${dataBuild.result}"
                 }
             }
         }
@@ -53,10 +67,11 @@ pipeline {
                     def trainingBuild = build job: 'Training Pipeline',
                         parameters: [
                             string(name: 'VERSION', value: "${BUILD_VERSION}"),
-                            string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
+                            string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}-logs")
                         ],
                         propagate: true
                     archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
+                    echo "Training pipeline completed with result: ${trainingBuild.result}"
                 }
             }
         }
@@ -66,8 +81,8 @@ pipeline {
                 script {
                     sh """
                         docker pull ${QUALITY_IMAGE}:latest || exit 1
-                        docker pull ${DATA_IMAGE}:latest || exit 1
-                        docker pull ${MODEL_IMAGE}:latest || exit 1
+                        docker pull ${DATA_IMAGE}:${BUILD_VERSION}-logs || exit 1
+                        docker pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs || exit 1
                         
                         echo "✅ All pipeline artifacts verified successfully"
                     """
@@ -77,11 +92,19 @@ pipeline {
         
         stage('Tag Final Images') {
             when {
-                expression { currentBuild.result == 'SUCCESS' }
+                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
             }
             steps {
                 script {
                     sh """
+                        docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:${BUILD_VERSION}
+                        docker tag ${DATA_IMAGE}:${BUILD_VERSION}-logs ${DATA_IMAGE}:${BUILD_VERSION}
+                        docker tag ${MODEL_IMAGE}:${BUILD_VERSION}-logs ${MODEL_IMAGE}:${BUILD_VERSION}
+                        
+                        docker push ${QUALITY_IMAGE}:${BUILD_VERSION}
+                        docker push ${DATA_IMAGE}:${BUILD_VERSION}
+                        docker push ${MODEL_IMAGE}:${BUILD_VERSION}
+                        
                         docker tag ${QUALITY_IMAGE}:${BUILD_VERSION} ${QUALITY_IMAGE}:latest
                         docker tag ${DATA_IMAGE}:${BUILD_VERSION} ${DATA_IMAGE}:latest
                         docker tag ${MODEL_IMAGE}:${BUILD_VERSION} ${MODEL_IMAGE}:latest
@@ -98,23 +121,22 @@ pipeline {
     post {
         success {
             emailext (
-                subject: 'ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS',
-                body: '''${SCRIPT, template="groovy-html.template"}
-                
-                Complete ML Pipeline executed successfully!
-                
-                Build Version: ${BUILD_VERSION}
-                
-                Images Available:
-                - Quality: ${QUALITY_IMAGE}:${BUILD_VERSION}
-                - Data: ${DATA_IMAGE}:${BUILD_VERSION}
-                - Model: ${MODEL_IMAGE}:${BUILD_VERSION}
-                
-                Check console output at ${BUILD_URL} to view the results.
-                
-                Changes:
-                ${CHANGES}
-                ''',
+                subject: "ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS",
+                body: """
+                    Complete ML Pipeline executed successfully!
+                    
+                    Build Version: ${BUILD_VERSION}
+                    
+                    Images Available:
+                    - Quality: ${QUALITY_IMAGE}:${BUILD_VERSION}
+                    - Data: ${DATA_IMAGE}:${BUILD_VERSION}
+                    - Model: ${MODEL_IMAGE}:${BUILD_VERSION}
+                    
+                    Check console output at ${BUILD_URL} to view the results.
+                    
+                    Changes:
+                    ${CHANGES, hideEmpty=true}
+                """,
                 to: "${EMAIL_TO}",
                 recipientProviders: [[$class: 'DevelopersRecipientProvider']],
                 attachLog: true,
@@ -123,19 +145,18 @@ pipeline {
         }
         failure {
             emailext (
-                subject: 'ML Pipeline - Build #${BUILD_NUMBER} - FAILURE',
-                body: '''${SCRIPT, template="groovy-html.template"}
-                
-                Pipeline execution failed!
-                
-                Build Version: ${BUILD_VERSION}
-                Failed Stage: ${FAILED_STAGE}
-                
-                Check console output at ${BUILD_URL} to view the results.
-                
-                Error Message:
-                ${BUILD_LOG}
-                ''',
+                subject: "ML Pipeline - Build #${BUILD_NUMBER} - FAILURE",
+                body: """
+                    Pipeline execution failed!
+                    
+                    Build Version: ${BUILD_VERSION}
+                    Failed Stage: ${env.FAILED_STAGE_NAME ?: 'Unknown'}
+                    
+                    Check console output at ${BUILD_URL} to view the results.
+                    
+                    Error Message:
+                    ${currentBuild.rawBuild.getLog(100).join('\n')}
+                """,
                 to: "${EMAIL_TO}",
                 recipientProviders: [[$class: 'DevelopersRecipientProvider']],
                 attachLog: true,
@@ -144,13 +165,16 @@ pipeline {
         }
         always {
             echo "Pipeline execution complete!"
-            
             sh """
                 docker rmi ${QUALITY_IMAGE}:${BUILD_VERSION} || true
                 docker rmi ${DATA_IMAGE}:${BUILD_VERSION} || true
                 docker rmi ${MODEL_IMAGE}:${BUILD_VERSION} || true
+                docker rmi ${DATA_IMAGE}:${BUILD_VERSION}-logs || true
+                docker rmi ${MODEL_IMAGE}:${BUILD_VERSION}-logs || true
+                docker logout || true
                 docker system prune -f || true
             """
+            cleanWs()
         }
     }
 }
