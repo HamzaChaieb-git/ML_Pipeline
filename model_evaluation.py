@@ -12,9 +12,10 @@ from sklearn.metrics import (
     log_loss
 )
 import mlflow
-from typing import Any
+import pandas as pd
+from typing import Any, Dict
 
-def evaluate_model(model: Any, X_test: Any, y_test: Any) -> None:
+def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     """
     Evaluate a model, log metrics to MLflow, and print classification metrics.
 
@@ -22,6 +23,9 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> None:
         model: Trained model (e.g., XGBoost model).
         X_test: Testing features (e.g., pandas DataFrame or numpy array).
         y_test: Testing labels (e.g., pandas Series or numpy array).
+
+    Returns:
+        Dictionary containing all computed metrics.
 
     Raises:
         ValueError: If input data or model is invalid.
@@ -35,47 +39,51 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> None:
     y_pred = model.predict(X_test)
     y_pred_proba = model.predict_proba(X_test)
     
-    # Calculate detailed metrics
+    # Calculate metrics
     metrics = {
-        "accuracy": accuracy_score(y_test, y_pred),
-        "precision": precision_score(y_test, y_pred),
-        "recall": recall_score(y_test, y_pred),
-        "f1_score": f1_score(y_test, y_pred),
-        "roc_auc_score": roc_auc_score(y_test, y_pred_proba[:, 1]),
-        "log_loss": log_loss(y_test, y_pred_proba)
+        "test_accuracy": accuracy_score(y_test, y_pred),
+        "test_precision": precision_score(y_test, y_pred),
+        "test_recall": recall_score(y_test, y_pred),
+        "test_f1": f1_score(y_test, y_pred),
+        "test_roc_auc": roc_auc_score(y_test, y_pred_proba[:, 1]),
+        "test_log_loss": log_loss(y_test, y_pred_proba)
     }
     
-    # Calculate class-specific metrics
+    # Get detailed classification report
     report = classification_report(y_test, y_pred, output_dict=True)
     confusion = confusion_matrix(y_test, y_pred)
     
-    # Add class-specific metrics
+    # Add detailed metrics
     metrics.update({
-        "precision_class_0": report['0']['precision'],
-        "recall_class_0": report['0']['recall'],
-        "f1_score_class_0": report['0']['f1-score'],
-        "precision_class_1": report['1']['precision'],
-        "recall_class_1": report['1']['recall'],
-        "f1_score_class_1": report['1']['f1-score']
+        "test_precision_class_0": report['0']['precision'],
+        "test_recall_class_0": report['0']['recall'],
+        "test_f1_class_0": report['0']['f1-score'],
+        "test_precision_class_1": report['1']['precision'],
+        "test_recall_class_1": report['1']['recall'],
+        "test_f1_class_1": report['1']['f1-score']
+    })
+    
+    # Calculate and add confusion matrix metrics
+    metrics.update({
+        "test_true_negatives": int(confusion[0, 0]),
+        "test_false_positives": int(confusion[0, 1]),
+        "test_false_negatives": int(confusion[1, 0]),
+        "test_true_positives": int(confusion[1, 1])
     })
     
     # Log all metrics to MLflow
     mlflow.log_metrics(metrics)
-
-    # Calculate confusion matrix percentages for better interpretation
-    confusion_pct = confusion.astype('float') / confusion.sum(axis=1)[:, np.newaxis]
     
-    # Log confusion matrix values
-    mlflow.log_metric("true_negative", confusion[0, 0])
-    mlflow.log_metric("false_positive", confusion[0, 1])
-    mlflow.log_metric("false_negative", confusion[1, 0])
-    mlflow.log_metric("true_positive", confusion[1, 1])
+    # Create confusion matrix figure
+    confusion_df = pd.DataFrame(
+        confusion,
+        index=['Actual Negative', 'Actual Positive'],
+        columns=['Predicted Negative', 'Predicted Positive']
+    )
     
-    # Log confusion matrix percentages
-    mlflow.log_metric("true_negative_rate", confusion_pct[0, 0])
-    mlflow.log_metric("false_positive_rate", confusion_pct[0, 1])
-    mlflow.log_metric("false_negative_rate", confusion_pct[1, 0])
-    mlflow.log_metric("true_positive_rate", confusion_pct[1, 1])
+    # Save confusion matrix as CSV artifact
+    confusion_df.to_csv("confusion_matrix.csv")
+    mlflow.log_artifact("confusion_matrix.csv")
 
     # Print results
     print("\nClassification Report:")
@@ -86,3 +94,5 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> None:
     for metric_name, value in metrics.items():
         print(f"{metric_name}: {value:.4f}")
     print("🔹 Evaluation complete")
+    
+    return metrics
