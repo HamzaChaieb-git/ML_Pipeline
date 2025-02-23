@@ -6,13 +6,14 @@ import mlflow
 from typing import Any
 
 
-def save_model(model: Any, filename: str = "model.joblib") -> None:
+def save_model(model: Any, filename: str = "model.joblib", run_id: str = None) -> None:
     """
     Save a model using joblib and log it with MLflow.
 
     Args:
         model: Trained model to save.
         filename (str): Name of the file to save the model to (default: "model.joblib").
+        run_id: Optional MLflow run ID to log to an existing run.
 
     Raises:
         IOError: If there’s an issue saving the model file.
@@ -22,8 +23,12 @@ def save_model(model: Any, filename: str = "model.joblib") -> None:
 
     joblib.dump(model, filename)
     print(f"Model saved as {filename}")
-    with mlflow.start_run():
-        mlflow.log_artifact(filename)
+    if run_id:
+        with mlflow.start_run(run_id=run_id):
+            mlflow.log_artifact(filename)
+    else:
+        with mlflow.start_run():
+            mlflow.log_artifact(filename)
 
 
 def load_model(filename: str = "model.joblib") -> Any:
