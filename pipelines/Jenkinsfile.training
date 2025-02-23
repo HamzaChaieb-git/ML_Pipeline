@@ -1,0 +1,68 @@
+// pipelines/training-pipeline.groovy
+pipeline {
+    agent any
+    
+    environment {
+        BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
+        DATA_IMAGE = 'hamzachaieb01/ml-data'
+        MODEL_IMAGE = 'hamzachaieb01/ml-model'
+        TAG = 'latest'
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'  // Adjust as needed
+    }
+    
+    stages {
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+        
+        stage('Train Model') {
+            steps {
+                script {
+                    sh '''
+                        # Train using processed data from data pipeline
+                        docker run --name model_trainer \
+                            -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                            --volumes-from data_processor \
+                            ${BASE_IMAGE}:${TAG} \
+                            python -m main train_model
+                            
+                        # Evaluate model
+                        docker exec model_trainer python -m main evaluate_model
+                        
+                        # Save model
+                        docker exec model_trainer python -m main save_model
+                        
+                        # Create new image with trained model
+                        docker commit model_trainer ${MODEL_IMAGE}:${TAG}
+                        docker push ${MODEL_IMAGE}:${TAG}
+                        
+                        # Tag with model metrics
+                        ACCURACY=$(docker exec model_trainer cat model_metrics.txt | grep accuracy | cut -d' ' -f2)
+                        docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${ACCURACY}
+                        docker push ${MODEL_IMAGE}:accuracy-${ACCURACY}
+                        
+                        echo "✅ Training complete. Images pushed:"
+                        echo "- ${MODEL_IMAGE}:${TAG}"
+                        echo "- ${MODEL_IMAGE}:accuracy-${ACCURACY}"
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            sh '''
+                docker rm -f model_trainer || true
+                docker logout || true
+            '''
+        }
+        success {
+            echo "Training pipeline complete. Model available in image: ${MODEL_IMAGE}:${TAG}"
+        }
+    }
+}
