@@ -5,7 +5,6 @@ pipeline {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
         TAG = 'latest'
-        WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
     }
     
     options {
@@ -34,12 +33,8 @@ pipeline {
             steps {
                 script {
                     try {
-                        sh 'mkdir -p quality_reports'
-                        
                         // Start quality checker container and ensure /app directory exists
                         docker run --name quality_checker \
-                            -v "${WORKSPACE_SAFE}":/workspace \
-                            -w /workspace \
                             ${BASE_IMAGE}:${TAG} \
                             tail -f /dev/null
                         
@@ -69,10 +64,7 @@ pipeline {
                             fi
                         done
                         
-                        // Copy quality reports to /app for logging (already done in the exec command)
-                        // docker exec quality_checker cp /workspace/quality_reports/*.txt /app/  # Not needed if output is directly to /app/
-                        
-                        // Save quality reports in new image with logs
+                        // Save quality reports in new image with logs for MLflow integration
                         docker commit quality_checker ${QUALITY_IMAGE}:${TAG}-logs
                         docker push ${QUALITY_IMAGE}:${TAG}-logs
                         
@@ -90,22 +82,22 @@ pipeline {
                 script {
                     sh '''#!/bin/bash
                         echo "=== Flake8 Results ==="
-                        if [ -f quality_reports/flake8_report.txt ]; then
-                            cat quality_reports/flake8_report.txt
+                        if [ -f /app/flake8_report.txt ]; then
+                            cat /app/flake8_report.txt
                         else
                             echo "No Flake8 issues found"
                         fi
                         
                         echo -e "\\n=== Black Results ==="
-                        if [ -f quality_reports/black_report.txt ]; then
-                            cat quality_reports/black_report.txt
+                        if [ -f /app/black_report.txt ]; then
+                            cat /app/black_report.txt
                         else
                             echo "No Black issues found"
                         fi
                         
                         echo -e "\\n=== Bandit Results ==="
-                        if [ -f quality_reports/bandit_report.txt ]; then
-                            cat quality_reports/bandit_report.txt
+                        if [ -f /app/bandit_report.txt ]; then
+                            cat /app/bandit_report.txt
                         else
                             echo "No Bandit issues found"
                         fi
@@ -122,10 +114,6 @@ pipeline {
                 docker logout
                 docker system prune -f
             '''
-            
-            archiveArtifacts artifacts: 'quality_reports/**/*', 
-                           allowEmptyArchive: true,
-                           fingerprint: true
             
             cleanWs()
         }
