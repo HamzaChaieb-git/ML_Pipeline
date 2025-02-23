@@ -15,7 +15,7 @@ def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassi
     Args:
         X_train: Training features (e.g., pandas DataFrame or numpy array).
         y_train: Training labels (e.g., pandas Series or numpy array).
-        run_id: Optional MLflow run ID to log to an existing run.
+        run_id: Optional MLflow run ID to log to an existing run (if already active).
 
     Returns:
         xgb.XGBClassifier: Trained XGBoost model.
@@ -23,17 +23,15 @@ def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassi
     Raises:
         ValueError: If input data is invalid or empty.
     """
-    # Check if X_train or y_train is empty (works for NumPy arrays or pandas objects)
     if (not isinstance(X_train, (np.ndarray, pd.DataFrame)) or 
         not isinstance(y_train, (np.ndarray, pd.Series)) or 
         len(X_train) == 0 or 
         len(y_train) == 0):
         raise ValueError("Training data or labels cannot be empty or invalid")
 
-    # Use existing run if run_id is provided, otherwise start a new one
-    if run_id:
-        with mlflow.start_run(run_id=run_id):
-            return _train_model(X_train, y_train)
+    # If run_id is provided, assume we're in an active run; otherwise, start a new one
+    if run_id and mlflow.active_run():  # Check if there's an active run
+        return _train_model(X_train, y_train)
     else:
         with mlflow.start_run():
             return _train_model(X_train, y_train)
