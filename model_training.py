@@ -3,7 +3,7 @@
 import xgboost as xgb
 import mlflow
 import mlflow.xgboost
-import pandas as pd  # Added this import
+import pandas as pd
 import numpy as np
 from typing import Any
 
@@ -29,8 +29,7 @@ def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassi
         len(y_train) == 0):
         raise ValueError("Training data or labels cannot be empty or invalid")
 
-    # If run_id is provided, assume we're in an active run; otherwise, start a new one
-    if run_id and mlflow.active_run():  # Check if there's an active run
+    if run_id and mlflow.active_run():
         return _train_model(X_train, y_train)
     else:
         with mlflow.start_run():
