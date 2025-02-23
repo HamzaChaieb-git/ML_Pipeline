@@ -45,19 +45,21 @@ pipeline {
         }
         
         stage('Training Pipeline') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
-            steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    build job: 'Training Pipeline',  // Changé de ML_Training_Pipeline
-                          parameters: [
-                              string(name: 'VERSION', value: "${BUILD_VERSION}"),
-                              string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
-                          ]
-                }
-            }
+    when {
+        expression { currentBuild.result != 'FAILURE' }
+    }
+    steps {
+        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+            def trainingBuild = build job: 'Training Pipeline',
+                parameters: [
+                    string(name: 'VERSION', value: "${BUILD_VERSION}"),
+                    string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
+                ],
+                propagate: true
+            archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
         }
+    }
+}
         
         stage('Verify Images') {
             steps {
