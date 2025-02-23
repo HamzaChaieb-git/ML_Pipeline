@@ -59,7 +59,7 @@ pipeline {
                             # Train model
                             docker exec model_trainer python -m main train_model
                             
-                            # Evaluate model and capture all metrics
+                            # Evaluate model and save full output
                             docker exec model_trainer python -u -m main evaluate_model | tee model_output.txt
                             
                             # Save model
@@ -69,42 +69,66 @@ pipeline {
                         // Get training timestamp
                         def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // Extract metrics using Python for better parsing
+                        // Extract metrics using Python
                         def metrics = sh(
                             script: '''
                                 docker exec model_trainer python3 -c "
 import re
 import json
+from sklearn.metrics import classification_report
 
 def parse_metrics(file_path):
     with open(file_path, 'r') as f:
         content = f.read()
     
-    # Extract all metrics
     metrics = {}
     
-    # Get overall accuracy
-    accuracy_match = re.search(r'accuracy\\s*:\\s*(\\d+\\.\\d+)', content)
-    if accuracy_match:
-        metrics['accuracy'] = float(accuracy_match.group(1))
-    
-    # Get class specific metrics
-    for class_label in ['0', '1']:
-        class_metrics = re.findall(
-            f'{class_label}\\s+(\\d+\\.\\d+)\\s+(\\d+\\.\\d+)\\s+(\\d+\\.\\d+)', 
-            content
-        )
-        if class_metrics:
-            precision, recall, f1 = map(float, class_metrics[0])
-            metrics[f'precision_{class_label}'] = precision
-            metrics[f'recall_{class_label}'] = recall
-            metrics[f'f1_{class_label}'] = f1
+    # Get classification report section
+    report_match = re.search(r'Classification Report:\n(.*?)(?:\n\n|$)', content, re.DOTALL)
+    if report_match:
+        report_text = report_match.group(1)
+        
+        # Extract accuracy
+        accuracy_match = re.search(r'accuracy\s*:\s*([\d.]+)', report_text)
+        if accuracy_match:
+            metrics['accuracy'] = float(accuracy_match.group(1))
+        
+        # Extract class metrics
+        for class_label in ['0', '1']:
+            pattern = fr'{class_label}\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)'
+            class_match = re.search(pattern, report_text)
+            if class_match:
+                precision, recall, f1 = map(float, class_match.groups())
+                metrics[f'precision_{class_label}'] = precision
+                metrics[f'recall_{class_label}'] = recall
+                metrics[f'f1_{class_label}'] = f1
+        
+        # Extract macro/weighted averages
+        for avg_type in ['macro avg', 'weighted avg']:
+            pattern = fr'{avg_type}\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)'
+            avg_match = re.search(pattern, report_text)
+            if avg_match:
+                precision, recall, f1 = map(float, avg_match.groups())
+                prefix = avg_type.replace(' ', '_')
+                metrics[f'{prefix}_precision'] = precision
+                metrics[f'{prefix}_recall'] = recall
+                metrics[f'{prefix}_f1'] = f1
     
     # Get confusion matrix
-    matrix_lines = re.findall(r'Confusion Matrix:\\n\\s*(\\[.*?\\])', content, re.DOTALL)
-    if matrix_lines:
-        matrix_str = matrix_lines[0].replace('\\n', '').replace(' ', '')
-        metrics['confusion_matrix'] = matrix_str
+    matrix_match = re.search(r'Confusion Matrix:\n(.*?)(?:\n\n|$)', content, re.DOTALL)
+    if matrix_match:
+        matrix_text = matrix_match.group(1)
+        # Convert matrix text to numbers and store
+        try:
+            matrix_lines = [line.strip() for line in matrix_text.split('\n') if line.strip()]
+            matrix = []
+            for line in matrix_lines:
+                row = [int(x) for x in re.findall(r'\d+', line)]
+                if row:
+                    matrix.append(row)
+            metrics['confusion_matrix'] = matrix
+        except:
+            metrics['confusion_matrix'] = None
     
     return metrics
 
@@ -120,7 +144,10 @@ print(json.dumps(metrics))
                         
                         // Create label arguments for all metrics
                         def labelArgs = metricsMap.collect { k, v ->
-                            "-c 'LABEL model.${k}=${v}'"
+                            if (k == 'confusion_matrix') {
+                                return "-c 'LABEL model.${k}=${v.toString().replaceAll('\\s+', '')}'"
+                            }
+                            return "-c 'LABEL model.${k}=${v}'"
                         }.join(' ')
                         
                         // Save metrics for artifacts
@@ -131,7 +158,7 @@ ${metrics}
 EOF
                         """
                         
-                        // Create and push model images with metrics
+                        // Create and push model images with all metrics
                         withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
                                        usernameVariable: 'DOCKER_USERNAME', 
                                        passwordVariable: 'DOCKER_PASSWORD')]) {
@@ -145,21 +172,21 @@ EOF
                                     ${labelArgs} \
                                     model_trainer ${MODEL_IMAGE}:${TAG}
                                 
-                                # Create tags for key metrics
+                                # Create tags for important metrics
                                 docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}
-                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:f1_weighted-${metricsMap.f1_1}
+                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:f1_weighted-${metricsMap.weighted_avg_f1}
                                 docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
                                 
                                 # Push all tags
                                 docker push ${MODEL_IMAGE}:${TAG}
                                 docker push ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}
-                                docker push ${MODEL_IMAGE}:f1_weighted-${metricsMap.f1_1}
+                                docker push ${MODEL_IMAGE}:f1_weighted-${metricsMap.weighted_avg_f1}
                                 docker push ${MODEL_IMAGE}:${timestamp}
                                 
                                 echo "✅ Training complete. Images pushed:"
                                 echo "- ${MODEL_IMAGE}:${TAG}"
                                 echo "- ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}"
-                                echo "- ${MODEL_IMAGE}:f1_weighted-${metricsMap.f1_1}"
+                                echo "- ${MODEL_IMAGE}:f1_weighted-${metricsMap.weighted_avg_f1}"
                                 echo "- ${MODEL_IMAGE}:${timestamp}"
                                 echo "\\nModel Metrics:"
                                 echo '${metrics}' | python3 -m json.tool
@@ -180,8 +207,30 @@ EOF
     post {
         always {
             sh '''
+                # Remove running containers
                 docker rm -f model_trainer || true
                 docker rm -f data_container || true
+                
+                # Keep only latest 2 versions
+                REPO="hamzachaieb01/ml-model"
+                KEEP_LATEST=2
+                
+                # Get list of timestamped tags
+                TAGS=$(docker images $REPO --format '{{.Tag}}' | grep '^[0-9]' | sort -r)
+                
+                # Remove old tags
+                COUNT=$(echo "$TAGS" | wc -l)
+                if [ "$COUNT" -gt "$KEEP_LATEST" ]; then
+                    echo "$TAGS" | tail -n +$((KEEP_LATEST + 1)) | while read tag; do
+                        docker rmi "$REPO:$tag" || true
+                    done
+                fi
+                
+                # Remove any incomplete tags
+                docker rmi $(docker images "$REPO" -f "reference=*accuracy-" -q) 2>/dev/null || true
+                docker rmi $(docker images "$REPO" -f "reference=*accuracy-0.0" -q) 2>/dev/null || true
+                
+                # Cleanup
                 docker logout
                 docker system prune -f
                 rm -f model_output.txt
