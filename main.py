@@ -1,82 +1,64 @@
 import argparse
 import os
+import mlflow
 import sys
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
-import joblib
-from sklearn.metrics import classification_report, confusion_matrix
+from data_processing import prepare_data as process_data
+from model_training import train_model as train_xgb_model
+from model_evaluation import evaluate_model as evaluate_xgb_model
+from model_persistence import save_model as save_xgb_model, load_model as load_xgb_model
+
+# Set MLflow tracking URI to use a local SQLite database
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
 
 def prepare_data(train_file: str = "churn-bigml-80.csv", test_file: str = "churn-bigml-20.csv"):
-    """Prepare data by loading and splitting CSV files, returning train/test splits."""
+    """Prepare data using the actual implementation."""
     print("🔹 Preparing data...")
-    try:
-        train_df = pd.read_csv(train_file)
-        test_df = pd.read_csv(test_file)
-    except FileNotFoundError:
-        print("Warning: CSV files not found, using placeholder data.")
-        # Placeholder data with 'Churn' as target
-        np.random.seed(42)
-        data = pd.DataFrame({
-            'feature1': np.random.rand(1000),
-            'feature2': np.random.rand(1000),
-            'Churn': np.random.randint(0, 2, 1000)
-        })
-        train_df, test_df = train_test_split(data, test_size=0.2, random_state=42)
-
-    # Check for 'Churn' column
-    if 'Churn' not in train_df.columns or 'Churn' not in test_df.columns:
-        raise ValueError("Missing 'Churn' column in data")
-
-    X_train = train_df.drop('Churn', axis=1)
-    y_train = train_df['Churn']
-    X_test = test_df.drop('Churn', axis=1)
-    y_test = test_df['Churn']
-
+    X_train, X_test, y_train, y_test = process_data(train_file, test_file)
+    with mlflow.start_run(run_name="Data Preparation"):
+        mlflow.log_param("train_file", train_file)
+        mlflow.log_param("test_file", test_file)
     print("🔹 Data preparation complete")
     return X_train, X_test, y_train, y_test
 
-def train_model(X_train, y_train):
-    """Train an XGBoost model."""
+def train_model(X_train, y_train, run_id=None):
+    """Train model using the actual implementation."""
     print("🔹 Training model...")
-    model = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
-    model.fit(X_train, y_train)
+    with mlflow.start_run(run_name="Model Training"):
+        model = train_xgb_model(X_train, y_train)
     print("🔹 Model training complete")
     return model
 
-def evaluate_model(model, X_test, y_test):
-    """Evaluate the model and print classification metrics."""
+def evaluate_model(model, X_test, y_test, run_id=None):
+    """Evaluate model using the actual implementation."""
     print("🔹 Evaluating model...")
-    y_pred = model.predict(X_test)
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred))
-    print("\nConfusion Matrix:")
-    print(confusion_matrix(y_test, y_pred))
+    with mlflow.start_run(run_name="Model Evaluation"):
+        evaluate_xgb_model(model, X_test, y_test)
     print("🔹 Evaluation complete")
 
-def save_model(model, filename: str = "model.joblib"):
-    """Save the model to a local file."""
+def save_model(model, run_id=None):
+    """Save model using the actual implementation."""
     print("🔹 Saving model...")
-    joblib.dump(model, filename)
-    print(f"Model saved as {filename}")
+    save_xgb_model(model)
+    print("🔹 Model saved")
 
-def load_model(filename: str = "model.joblib"):
-    """Load the model from a local file."""
+def load_model():
+    """Load model using the actual implementation."""
     print("🔹 Loading model...")
-    model = joblib.load(filename)
-    print(f"Model loaded from {filename}")
+    model = load_xgb_model()
+    print("🔹 Model loaded")
     return model
 
 def run_full_pipeline(train_file: str, test_file: str) -> None:
-    """Execute the complete ML pipeline."""
+    """Execute the complete ML pipeline with MLflow tracking."""
     print("Running full pipeline...")
-    X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-    model = train_model(X_train, y_train)
-    evaluate_model(model, X_test, y_test)
-    save_model(model)
-    loaded_model = load_model()
-    evaluate_model(loaded_model, X_test, y_test)
+    
+    with mlflow.start_run(run_name="Full Pipeline") as run:
+        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
+        model = train_model(X_train, y_train)
+        evaluate_model(model, X_test, y_test)
+        save_model(model)
+        loaded_model = load_model()
+        evaluate_model(loaded_model, X_test, y_test)
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments for pipeline actions."""
@@ -99,20 +81,24 @@ def main() -> None:
     if args.action == "prepare_data":
         prepare_data(train_file, test_file)
     elif args.action == "train_model":
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        train_model(X_train, y_train)
+        with mlflow.start_run() as run:
+            X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
+            train_model(X_train, y_train, run_id=run.info.run_id)
     elif args.action == "evaluate_model":
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        model = train_model(X_train, y_train)
-        evaluate_model(model, X_test, y_test)
+        with mlflow.start_run() as run:
+            X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
+            model = train_model(X_train, y_train, run_id=run.info.run_id)
+            evaluate_model(model, X_test, y_test, run_id=run.info.run_id)
     elif args.action == "save_model":
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        model = train_model(X_train, y_train)
-        save_model(model)
+        with mlflow.start_run() as run:
+            X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
+            model = train_model(X_train, y_train, run_id=run.info.run_id)
+            save_model(model, run_id=run.info.run_id)
     elif args.action == "load_model":
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        loaded_model = load_model()
-        evaluate_model(loaded_model, X_test, y_test)
+        with mlflow.start_run() as run:
+            X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
+            loaded_model = load_model()
+            evaluate_model(loaded_model, X_test, y_test, run_id=run.info.run_id)
     elif args.action == "all":
         run_full_pipeline(train_file, test_file)
     else:
