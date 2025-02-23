@@ -138,8 +138,11 @@ print(json.dumps(metrics))
                             returnStdout: true
                         ).trim()
                         
-                        // Parse the JSON metrics manually using Groovy's JsonSlurper
-                        def metricsMap = new groovy.json.JsonSlurper().parseText(metrics)
+                        // Parse the JSON metrics with JsonSlurper and force evaluation
+                        def metricsMap = new groovy.json.JsonSlurper().parseText(metrics) as Map
+                        
+                        // Ensure all fields are accessible by converting LazyMap to a concrete Map
+                        metricsMap = metricsMap.collectEntries { k, v -> [k, v instanceof groovy.json.internal.LazyMap ? v.toMap() : v] }
                         
                         // Create label arguments for all metrics
                         def labelArgs = metricsMap.collect { k, v ->
