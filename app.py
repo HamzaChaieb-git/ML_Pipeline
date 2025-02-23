@@ -1,143 +1,217 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import pickle
+import streamlit as st
 import pandas as pd
+import numpy as np
+import joblib
+import plotly.express as px
 from sklearn.preprocessing import LabelEncoder
-import os
-import subprocess
-import tempfile
 
-app = FastAPI()
+# Set page configuration
+st.set_page_config(
+    page_title="Churn Prediction Dashboard",
+    page_icon="📊",
+    layout="wide"
+)
 
-# Initialize model as None
-model = None
-
-def pull_model_from_docker():
-    """Pull the latest model from Docker container"""
-    try:
-        # Create a temporary container from the image
-        container_id = subprocess.check_output(
-            ["docker", "create", "hamzachaieb01/ml-trained:latest"],
-            text=True
-        ).strip()
-
-        # Create a temporary directory
-        with tempfile.TemporaryDirectory() as temp_dir:
-            model_path = os.path.join(temp_dir, "model.pkl")
-            
-            # Copy the model file from the container
-            subprocess.run([
-                "docker", "cp",
-                f"{container_id}:/app/model.pkl",
-                model_path
-            ], check=True)
-            
-            # Load the model
-            with open(model_path, 'rb') as f:
-                model_obj = pickle.load(f)
-            
-            # Clean up the container
-            subprocess.run(["docker", "rm", container_id], check=True)
-            
-            return model_obj
-            
-    except Exception as e:
-        print(f"Error pulling model from Docker: {e}")
-        raise Exception(f"Failed to pull model from Docker: {e}")
-
-# Load the model when the app starts
+# Load the trained model
+@st.cache_resource
 def load_model():
-    global model
     try:
-        model = pull_model_from_docker()
-        print("Model loaded successfully from Docker")
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        raise Exception(f"Failed to load model: {e}")
+        return joblib.load('model.joblib')
+    except:
+        st.error("⚠️ Model file not found. Please ensure model.joblib exists in the same directory.")
+        return None
 
-# Load model at startup
-load_model()
-
-class ChurnPredictionInput(BaseModel):
-    Total_day_minutes: float
-    Customer_service_calls: int
-    International_plan: str
-    Total_intl_minutes: float
-    Total_intl_calls: int
-    Total_eve_minutes: float
-    Number_vmail_messages: int
-    Voice_mail_plan: str
-
-def preprocess_data(df):
-    """Preprocess the input data"""
-    # Create a copy to avoid modifying the original
-    df_processed = df.copy()
-    
-    # Encode categorical variables
-    categorical_features = ['International plan', 'Voice mail plan']
-    
-    # Rename columns to match expected feature names
-    column_mapping = {
-        'Total_day_minutes': 'Total day minutes',
-        'Customer_service_calls': 'Customer service calls',
-        'International_plan': 'International plan',
-        'Total_intl_minutes': 'Total intl minutes',
-        'Total_intl_calls': 'Total intl calls',
-        'Total_eve_minutes': 'Total eve minutes',
-        'Number_vmail_messages': 'Number vmail messages',
-        'Voice_mail_plan': 'Voice mail plan'
-    }
-    df_processed = df_processed.rename(columns=column_mapping)
-    
-    # Encode categorical variables
+# Feature preprocessing
+def preprocess_features(data):
     le = LabelEncoder()
+    categorical_features = ['International plan', 'Voice mail plan']
     for feature in categorical_features:
-        # Convert to string to ensure consistent encoding
-        df_processed[feature] = df_processed[feature].astype(str)
-        df_processed[feature] = le.fit_transform(df_processed[feature])
-    
-    return df_processed
+        data[feature] = le.fit_transform(data[feature])
+    return data
 
-@app.post("/predict")
-async def predict(input_data: ChurnPredictionInput):
+def main():
+    # Sidebar
+    st.sidebar.title("Navigation")
+    page = st.sidebar.selectbox(
+        "Choose a page", 
+        ["Model Overview", "Single Prediction", "Batch Prediction"]
+    )
+
+    # Load model
+    model = load_model()
+    
     if model is None:
-        try:
-            load_model()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Model not loaded: {str(e)}")
-    
-    try:
-        # Convert input to DataFrame
-        df = pd.DataFrame([input_data.dict()])
-        
-        # Preprocess the data
-        df_processed = preprocess_data(df)
-        
-        # Make prediction
-        prediction = model.predict(df_processed)
-        probability = model.predict_proba(df_processed)[0]
-        
-        return {
-            "churn_prediction": "Yes" if prediction[0] == 1 else "No",
-            "churn_probability": float(probability[1])
-        }
-    except Exception as e:
-        print(f"Error during prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        st.stop()
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Churn Prediction API is running. Use /predict for predictions.",
-        "model_loaded": model is not None,
-        "model_source": "Docker image: hamzachaieb01/ml-trained:latest"
-    }
+    # Define features
+    features = [
+        'Total day minutes',
+        'Customer service calls',
+        'International plan',
+        'Total intl minutes',
+        'Total intl calls',
+        'Total eve minutes',
+        'Number vmail messages',
+        'Voice mail plan'
+    ]
 
-@app.post("/refresh-model")
-async def refresh_model():
-    """Endpoint to manually refresh the model from Docker"""
-    try:
-        load_model()
-        return {"message": "Model refreshed successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if page == "Model Overview":
+        st.title("📊 Churn Prediction Model Overview")
+        
+        # Model Information
+        st.header("Model Information")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(label="Model Type", value="Random Forest")
+        with col2:
+            st.metric(label="Number of Features", value=len(features))
+        with col3:
+            st.metric(label="Feature Importance Available", value="Yes")
+
+        # Feature Importance
+        st.header("Feature Importance")
+        importance_df = pd.DataFrame({
+            'Feature': features,
+            'Importance': model.feature_importances_
+        }).sort_values('Importance', ascending=True)
+
+        fig = px.bar(
+            importance_df,
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            title='Feature Importance Plot'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif page == "Single Prediction":
+        st.title("🎯 Single Customer Churn Prediction")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            day_minutes = st.number_input("Total Day Minutes", min_value=0.0, max_value=500.0, value=100.0)
+            service_calls = st.number_input("Customer Service Calls", min_value=0, max_value=10, value=1)
+            intl_plan = st.selectbox("International Plan", ["No", "Yes"])
+            intl_minutes = st.number_input("Total International Minutes", min_value=0.0, max_value=100.0, value=10.0)
+
+        with col2:
+            intl_calls = st.number_input("Total International Calls", min_value=0, max_value=100, value=3)
+            eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, max_value=500.0, value=200.0)
+            vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, max_value=100, value=0)
+            vmail_plan = st.selectbox("Voicemail Plan", ["No", "Yes"])
+
+        if st.button("Predict Churn Probability"):
+            # Create input dataframe
+            input_data = pd.DataFrame([[
+                day_minutes, service_calls, intl_plan, intl_minutes,
+                intl_calls, eve_minutes, vmail_messages, vmail_plan
+            ]], columns=features)
+            
+            # Preprocess
+            processed_data = preprocess_features(input_data)
+            
+            # Make prediction
+            probability = model.predict_proba(processed_data)[0][1]
+            prediction = "High Risk" if probability >= 0.5 else "Low Risk"
+            
+            # Show prediction
+            st.header("Prediction Results")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric(
+                    label="Churn Risk",
+                    value=prediction,
+                    delta=f"{probability:.1%}"
+                )
+            
+            with col2:
+                # Create gauge chart for probability
+                fig = px.pie(
+                    values=[probability, 1-probability],
+                    names=['Churn Risk', 'Retention Probability'],
+                    hole=0.7,
+                    title="Churn Probability"
+                )
+                st.plotly_chart(fig)
+
+    else:  # Batch Prediction
+        st.title("📑 Batch Churn Prediction")
+        
+        uploaded_file = st.file_uploader("Upload CSV file", type=['csv'])
+        
+        if uploaded_file is not None:
+            data = pd.read_csv(uploaded_file)
+            
+            # Check if required features are present
+            missing_features = [feat for feat in features if feat not in data.columns]
+            
+            if missing_features:
+                st.error(f"Missing required features: {', '.join(missing_features)}")
+                st.stop()
+            
+            # Process data
+            input_data = data[features].copy()
+            processed_data = preprocess_features(input_data)
+            
+            # Make predictions
+            probabilities = model.predict_proba(processed_data)[:, 1]
+            predictions = model.predict(processed_data)
+            
+            # Add predictions to dataframe
+            results = data.copy()
+            results['Churn Probability'] = probabilities
+            results['Predicted Churn'] = predictions
+            
+            # Show results
+            st.header("Prediction Results")
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    label="Total Customers",
+                    value=len(results)
+                )
+            
+            with col2:
+                high_risk = (results['Churn Probability'] >= 0.5).sum()
+                st.metric(
+                    label="High Risk Customers",
+                    value=high_risk,
+                    delta=f"{high_risk/len(results):.1%}"
+                )
+            
+            with col3:
+                avg_prob = results['Churn Probability'].mean()
+                st.metric(
+                    label="Average Churn Probability",
+                    value=f"{avg_prob:.1%}"
+                )
+            
+            # Distribution plot
+            fig = px.histogram(
+                results,
+                x='Churn Probability',
+                nbins=50,
+                title='Distribution of Churn Probabilities'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show dataframe
+            st.dataframe(results)
+            
+            # Download link
+            csv = results.to_csv(index=False)
+            st.download_button(
+                label="Download Predictions",
+                data=csv,
+                file_name="churn_predictions.csv",
+                mime="text/csv"
+            )
+
+if __name__ == "__main__":
+    main()
