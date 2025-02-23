@@ -4,6 +4,7 @@ import xgboost as xgb
 import mlflow
 import mlflow.xgboost
 from typing import Any
+import numpy as np
 
 
 def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassifier:
@@ -21,8 +22,12 @@ def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassi
     Raises:
         ValueError: If input data is invalid or empty.
     """
-    if X_train.empty or y_train.empty:
-        raise ValueError("Training data or labels cannot be empty")
+    # Check if X_train or y_train is empty (works for NumPy arrays or pandas objects)
+    if (not isinstance(X_train, (np.ndarray, pd.DataFrame)) or 
+        not isinstance(y_train, (np.ndarray, pd.Series)) or 
+        len(X_train) == 0 or 
+        len(y_train) == 0):
+        raise ValueError("Training data or labels cannot be empty or invalid")
 
     # Use existing run if run_id is provided, otherwise start a new one
     if run_id:
