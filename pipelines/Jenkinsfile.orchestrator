@@ -87,7 +87,6 @@ pipeline {
                         docker pull ${QUALITY_IMAGE}:latest || exit 1
                         docker pull ${DATA_IMAGE}:${BUILD_VERSION}-logs || exit 1
                         docker pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs || exit 1
-                        
                         echo "✅ All pipeline artifacts verified successfully"
                     """
                 }
@@ -128,21 +127,14 @@ pipeline {
                 subject: "ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS",
                 body: """
                     Complete ML Pipeline executed successfully!
-                    
                     Build Version: ${BUILD_VERSION}
-                    
                     Images Available:
                     - Quality: ${QUALITY_IMAGE}:${BUILD_VERSION}
                     - Data: ${DATA_IMAGE}:${BUILD_VERSION}
                     - Model: ${MODEL_IMAGE}:${BUILD_VERSION}
-                    
                     Check console output at ${BUILD_URL} to view the results.
-                    
-                    Changes:
-                    \${currentBuild.changeSets.isEmpty() ? 'No changes in this build' : env.CHANGE_SET ?: CHANGES}
                 """,
                 to: "${EMAIL_TO}",
-                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
                 attachLog: true,
                 compressLog: true
             )
@@ -152,17 +144,12 @@ pipeline {
                 subject: "ML Pipeline - Build #${BUILD_NUMBER} - FAILURE",
                 body: """
                     Pipeline execution failed!
-                    
                     Build Version: ${BUILD_VERSION}
                     Failed Stage: ${env.FAILED_STAGE_NAME ?: 'Unknown'}
-                    
                     Check console output at ${BUILD_URL} to view the results.
-                    
-                    Error Message:
-                    ${currentBuild.rawBuild.getLog(100).join('\n')}
+                    The full build log is attached.
                 """,
                 to: "${EMAIL_TO}",
-                recipientProviders: [[$class: 'DevelopersRecipientProvider']],
                 attachLog: true,
                 compressLog: true
             )
