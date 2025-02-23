@@ -17,7 +17,26 @@ pipeline {
     }
     
     stages {
-        // Previous stages remain the same...
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                               usernameVariable: 'DOCKER_USERNAME', 
+                               passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+        
+        stage('Pull Images') {
+            steps {
+                script {
+                    sh """
+                        docker pull ${BASE_IMAGE}:${TAG}
+                        docker pull ${DATA_IMAGE}:${TAG}
+                    """
+                }
+            }
+        }
         
         stage('Train Model') {
             steps {
@@ -30,70 +49,79 @@ pipeline {
                         
                         // Create and start model trainer container
                         sh """
+                            # Create container with a sleep command to keep it running
                             docker run -d --name model_trainer \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
+                            # Train model
                             docker exec model_trainer python -m main train_model
+                            
+                            # Evaluate model
                             docker exec model_trainer python -m main evaluate_model
+                            
+                            # Save model
                             docker exec model_trainer python -m main save_model
                         """
                         
                         // Get training timestamp
                         def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // First try to get metrics from logs since we can see them there
+                        // Get accuracy directly from container output
                         def accuracy = sh(
-                            script: '''
-                                docker logs model_trainer 2>&1 | grep "Model Accuracy:" | tail -1 | awk '{print $3}'
-                            ''',
+                            script: """
+                                docker logs model_trainer 2>&1 | grep 'Model Accuracy:' | tail -1 | sed 's/.*Model Accuracy: //'
+                            """,
                             returnStdout: true
                         ).trim()
                         
-                        // Fallback to metrics file if log parsing fails
+                        // Verify we got the accuracy
                         if (!accuracy) {
-                            accuracy = sh(
-                                script: '''
-                                    docker exec model_trainer cat /workspace/model_metrics.txt 2>/dev/null | \
-                                    grep "Accuracy:" | awk '{print $2}' || echo "0.0"
-                                ''',
-                                returnStdout: true
-                            ).trim()
+                            error "Failed to extract model accuracy from logs"
                         }
                         
                         // Create and push model images with metrics
+                        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                       usernameVariable: 'DOCKER_USERNAME', 
+                                       passwordVariable: 'DOCKER_PASSWORD')]) {
+                            sh """
+                                # Re-login to ensure credentials are fresh
+                                echo "\$DOCKER_PASSWORD" | docker login -u "\$DOCKER_USERNAME" --password-stdin
+                                
+                                # Commit container with metrics
+                                docker commit \
+                                    -c 'LABEL training.timestamp=${timestamp}' \
+                                    -c 'LABEL model.accuracy=${accuracy}' \
+                                    model_trainer ${MODEL_IMAGE}:${TAG}
+                                
+                                # Create accuracy tag
+                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${accuracy}
+                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
+                                
+                                # Push all tags
+                                docker push ${MODEL_IMAGE}:${TAG}
+                                docker push ${MODEL_IMAGE}:accuracy-${accuracy}
+                                docker push ${MODEL_IMAGE}:${timestamp}
+                                
+                                echo "✅ Training complete. Images pushed:"
+                                echo "- ${MODEL_IMAGE}:${TAG}"
+                                echo "- ${MODEL_IMAGE}:accuracy-${accuracy}"
+                                echo "- ${MODEL_IMAGE}:${timestamp}"
+                                echo "\\nModel Metrics:"
+                                echo "accuracy=${accuracy}"
+                            """
+                        }
+                        
+                        // Save metrics for artifacts
                         sh """
-                            # Commit container with metrics
-                            docker commit \
-                                -c 'LABEL training.timestamp=${timestamp}' \
-                                -c 'LABEL model.accuracy=${accuracy}' \
-                                model_trainer ${MODEL_IMAGE}:${TAG}
-                            
-                            # Create accuracy tag
-                            docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${accuracy}
-                            docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
-                            
-                            # Push all tags
-                            docker push ${MODEL_IMAGE}:${TAG}
-                            docker push ${MODEL_IMAGE}:accuracy-${accuracy}
-                            docker push ${MODEL_IMAGE}:${timestamp}
-                            
-                            echo "✅ Training complete. Images pushed:"
-                            echo "- ${MODEL_IMAGE}:${TAG}"
-                            echo "- ${MODEL_IMAGE}:accuracy-${accuracy}"
-                            echo "- ${MODEL_IMAGE}:${timestamp}"
-                            echo "\\nModel Metrics:"
-                            echo "accuracy=${accuracy}"
-                            
-                            # Save metrics to build artifacts
                             mkdir -p metrics
                             echo "accuracy=${accuracy}" > metrics/model_metrics.txt
                         """
                         
-                        // Archive metrics
                         archiveArtifacts artifacts: 'metrics/*.txt', fingerprint: true
+                        
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
                         error "Model training failed: ${e.message}"
