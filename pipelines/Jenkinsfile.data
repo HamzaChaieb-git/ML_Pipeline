@@ -27,18 +27,16 @@ pipeline {
         stage('Process Data') {
             steps {
                 script {
+                    def baseImage = "${env.BASE_IMAGE}:${env.TAG}"
+                    def dataImageLogs = "${env.DATA_IMAGE}:${env.TAG}-logs"
                     try {
-                        // Pull the base image and run prepare_data, modifying the image directly
                         sh """
-                            docker run --rm \
-                                "${BASE_IMAGE}:${TAG}" \
-                                bash -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
-                            
-                            # Create a new image from the modified state
-                            docker commit $(docker create "${BASE_IMAGE}:${TAG}") ${DATA_IMAGE}:${TAG}-logs
-                            docker push "${DATA_IMAGE}:${TAG}-logs"
-                            
-                            echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}-logs"
+                            docker run -d --name data_processing "${baseImage}" tail -f /dev/null
+                            docker exec data_processing bash -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
+                            docker commit data_processing "${dataImageLogs}"
+                            docker push "${dataImageLogs}"
+                            docker rm -f data_processing
+                            echo "✅ Data processing complete. Image: ${dataImageLogs}"
                         """
                     } catch (Exception e) {
                         echo "Error during data processing: ${e.message}"
