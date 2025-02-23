@@ -1,126 +1,83 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import pickle
-import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-import os
-import subprocess
-import tempfile
+import streamlit as st
+import requests
+import json
 
-app = FastAPI()
+st.title('Customer Churn Prediction')
 
-# Initialize model as None
-model = None
-
-def pull_model_from_docker():
-    """Pull the latest model from Docker container"""
-    try:
-        # Create a temporary container from the image
-        container_id = subprocess.check_output(
-            ["docker", "create", "hamzachaieb01/ml-trained:latest"],
-            text=True
-        ).strip()
-
-        # Create a temporary directory
-        with tempfile.TemporaryDirectory() as temp_dir:
-            model_path = os.path.join(temp_dir, "model.pkl")
-            
-            # Copy the model file from the container
-            subprocess.run([
-                "docker", "cp",
-                f"{container_id}:/app/model.pkl",
-                model_path
-            ], check=True)
-            
-            # Load the model
-            with open(model_path, 'rb') as f:
-                model_obj = pickle.load(f)
-            
-            # Clean up the container
-            subprocess.run(["docker", "rm", container_id], check=True)
-            
-            return model_obj
-            
-    except Exception as e:
-        print(f"Error pulling model from Docker: {e}")
-        raise Exception(f"Failed to pull model from Docker: {e}")
-
-# Load the model when the app starts
-def load_model():
-    global model
-    try:
-        model = pull_model_from_docker()
-        print("Model loaded successfully from Docker")
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        raise Exception(f"Failed to load model: {e}")
-
-# Load model at startup
-load_model()
-
-class ChurnPredictionInput(BaseModel):
-    Total_day_minutes: float
-    Customer_service_calls: int
-    International_plan: str
-    Total_intl_minutes: float
-    Total_intl_calls: int
-    Total_eve_minutes: float
-    Number_vmail_messages: int
-    Voice_mail_plan: str
-
-def preprocess_data(df):
-    """Preprocess the input data"""
-    # Create a copy to avoid modifying the original
-    df_processed = df.copy()
+# Create form
+with st.form("prediction_form"):
+    st.write("Enter Customer Information")
     
-    # Encode categorical variables
-    le = LabelEncoder()
-    categorical_features = ['International plan', 'Voice mail plan']
-    for feature in categorical_features:
-        df_processed[feature] = le.fit_transform(df_processed[feature])
+    col1, col2 = st.columns(2)
     
-    return df_processed
-
-@app.post("/predict")
-async def predict(input_data: ChurnPredictionInput):
-    if model is None:
-        try:
-            load_model()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Model not loaded: {str(e)}")
+    with col1:
+        total_day_minutes = st.number_input("Total Day Minutes", min_value=0.0, max_value=500.0, value=100.0)
+        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, max_value=10, value=1)
+        international_plan = st.selectbox("International Plan", ["No", "Yes"])
+        total_intl_minutes = st.number_input("Total International Minutes", min_value=0.0, max_value=100.0, value=10.0)
     
-    try:
-        # Convert input to DataFrame
-        df = pd.DataFrame([input_data.dict()])
-        
-        # Preprocess the data
-        df_processed = preprocess_data(df)
-        
-        # Make prediction
-        prediction = model.predict(df_processed)
-        probability = model.predict_proba(df_processed)[0]
-        
-        return {
-            "churn_prediction": "Yes" if prediction[0] == 1 else "No",
-            "churn_probability": float(probability[1])
+    with col2:
+        total_intl_calls = st.number_input("Total International Calls", min_value=0, max_value=100, value=3)
+        total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, max_value=500.0, value=200.0)
+        number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, max_value=100, value=0)
+        voice_mail_plan = st.selectbox("Voice Mail Plan", ["No", "Yes"])
+    
+    submitted = st.form_submit_button("Predict Churn")
+    
+    if submitted:
+        # Prepare the input data EXACTLY matching the expected input
+        input_data = {
+            "Total_day_minutes": total_day_minutes,
+            "Customer_service_calls": customer_service_calls,
+            "International_plan": international_plan,
+            "Total_intl_minutes": total_intl_minutes,
+            "Total_intl_calls": total_intl_calls,
+            "Total_eve_minutes": total_eve_minutes,
+            "Number_vmail_messages": number_vmail_messages,
+            "Voice_mail_plan": voice_mail_plan
         }
-    except Exception as e:
-        print(f"Error during prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        try:
+            # Make prediction request using localhost for Docker container
+            response = requests.post("http://localhost:8000/predict", json=input_data)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # Display prediction
+            st.subheader("Prediction Results")
+            st.write(f"Churn Prediction: {result['churn_prediction']}")
+            st.write(f"Churn Probability: {result['churn_probability']:.2%}")
+            
+            # Add visual indicator
+            if result['churn_prediction'] == "Yes":
+                st.error("⚠️ High risk of churn!")
+            else:
+                st.success("✅ Low risk of churn")
+                
+        except requests.exceptions.RequestException as e:
+            st.error(f"Error making prediction: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    st.error(f"Server response: {e.response.json()}")
+                except:
+                    st.error(f"Server response: {e.response.text}")
+            st.error("Please check if the API server is running and all inputs are valid.")
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Churn Prediction API is running. Use /predict for predictions.",
-        "model_loaded": model is not None,
-        "model_source": "Docker image: hamzachaieb01/ml-trained:latest"
+# Add some custom styling
+st.markdown("""
+    <style>
+    .stButton>button {
+        width: 100%;
+        background-color: #4CAF50;
+        color: white;
     }
+    .stTextInput>div>div>input {
+        color: #4CAF50;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-@app.post("/refresh-model")
-async def refresh_model():
-    """Endpoint to manually refresh the model from Docker"""
-    try:
-        load_model()
-        return {"message": "Model refreshed successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Add footer
+st.markdown("---")
+st.markdown("Customer Churn Prediction Model © 2024")
