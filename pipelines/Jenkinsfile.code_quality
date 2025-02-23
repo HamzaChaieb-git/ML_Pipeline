@@ -5,6 +5,7 @@ pipeline {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
         TAG = 'latest'
+        WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
     }
     
     options {
@@ -33,10 +34,11 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Run quality checker container with quality checks
+                        // Start quality checker container, mounting the Jenkins workspace
                         docker run --name quality_checker \
+                            -v "${WORKSPACE_SAFE}":/app \
                             "${BASE_IMAGE}:${TAG}" \
-                            bash -c "flake8 . && black --check . && bandit -r . -f txt"
+                            bash -c "cd /app && flake8 . && black --check . && bandit -r . -f txt"
                         
                         echo "Code quality checks completed successfully"
                     } catch (Exception e) {
