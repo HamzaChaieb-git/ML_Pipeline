@@ -58,8 +58,8 @@ pipeline {
                             # Train model
                             docker exec model_trainer python -m main train_model
                             
-                            # Evaluate model and save full output
-                            docker exec model_trainer python -u -m main evaluate_model | tee model_output.txt
+                            # Evaluate model and save output directly in the container
+                            docker exec model_trainer sh -c "python -u -m main evaluate_model > /app/model_output.txt"
                             
                             # Save model
                             docker exec model_trainer python -m main save_model
@@ -68,7 +68,7 @@ pipeline {
                         // Get training timestamp
                         def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // Extract metrics using Python
+                        // Extract metrics using Python from the container
                         def metrics = sh(
                             script: '''
                                 docker exec model_trainer python3 -c "
@@ -131,7 +131,7 @@ def parse_metrics(file_path):
     
     return metrics
 
-metrics = parse_metrics('model_output.txt')
+metrics = parse_metrics('/app/model_output.txt')
 print(json.dumps(metrics))
 "
                             ''',
