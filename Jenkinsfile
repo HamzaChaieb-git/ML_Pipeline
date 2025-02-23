@@ -15,12 +15,14 @@ pipeline {
     
     stages {
         stage('Docker Login') {
-            steps {
-                sh '''
-                    echo "dckr_pat_CR7iXpPUQ_MegbA9oIIsyk4Jl5k" | docker login -u hamzachaieb01 --password-stdin
-                '''
-            }
+    steps {
+        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+            sh '''
+                echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+            '''
         }
+    }
+}
         
         stage('Check Requirements and Build Docker Image') {
             steps {
