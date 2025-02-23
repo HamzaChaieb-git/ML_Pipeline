@@ -36,68 +36,21 @@ pipeline {
                     try {
                         sh 'mkdir -p quality_reports'
                         
-                        // Run Flake8
-                        sh '''#!/bin/bash
-                            docker run --name flake8_check \
-                                -v "${WORKSPACE}":/workspace \
-                                -w /workspace \
-                                ${BASE_IMAGE}:${TAG} \
-                                flake8 . > quality_reports/flake8_report.txt || true
-                            docker rm -f flake8_check || true
-                        '''
+                        # Run Flake8, Black, and Bandit, capturing output to logs
+                        docker run --name quality_checker \
+                            -v "${WORKSPACE}":/workspace \
+                            -w /workspace \
+                            --network ml_network \
+                            ${BASE_IMAGE}:${TAG} \
+                            bash -c "flake8 . > /app/flake8_report.txt 2>&1 && \
+                                    black --check . > /app/black_report.txt 2>&1 && \
+                                    bandit -r . -f txt > /app/bandit_report.txt 2>&1"
                         
-                        // Run Black
-                        sh '''#!/bin/bash
-                            docker run --name black_check \
-                                -v "${WORKSPACE}":/workspace \
-                                -w /workspace \
-                                ${BASE_IMAGE}:${TAG} \
-                                black --check . > quality_reports/black_report.txt 2>&1 || true
-                            docker rm -f black_check || true
-                        '''
+                        # Save quality reports in new image
+                        docker commit quality_checker ${QUALITY_IMAGE}:${TAG}-logs
+                        docker push ${QUALITY_IMAGE}:${TAG}-logs
                         
-                        // Run Bandit
-                        sh '''#!/bin/bash
-                            docker run --name bandit_check \
-                                -v "${WORKSPACE}":/workspace \
-                                -w /workspace \
-                                ${BASE_IMAGE}:${TAG} \
-                                bandit -r . -f txt > quality_reports/bandit_report.txt 2>&1 || true
-                            docker rm -f bandit_check || true
-                        '''
-                        
-                        // Create quality image with reports as labels
-                        sh '''#!/bin/bash
-                            # Create container for reports
-                            docker create --name quality_container ${BASE_IMAGE}:${TAG}
-                            
-                            # Copy reports into the container
-                            docker cp quality_reports/. quality_container:/workspace/quality_reports/
-                            
-                            # Add timestamp to build
-                            BUILD_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                            
-                            # Create label arguments for reports (simplified, assuming text content or hashes)
-                            FLAKE8_HASH=$(md5sum quality_reports/flake8_report.txt | cut -d' ' -f1 || echo "no_issues")
-                            BLACK_HASH=$(md5sum quality_reports/black_report.txt | cut -d' ' -f1 || echo "no_issues")
-                            BANDIT_HASH=$(md5sum quality_reports/bandit_report.txt | cut -d' ' -f1 || echo "no_issues")
-                            
-                            # Commit container with labels
-                            docker commit \
-                                -c 'WORKDIR /workspace' \
-                                -c 'LABEL build.timestamp='${BUILD_TIMESTAMP}'' \
-                                -c 'LABEL build.pipeline=code-quality' \
-                                -c 'LABEL quality.flake8_hash='${FLAKE8_HASH}'' \
-                                -c 'LABEL quality.black_hash='${BLACK_HASH}'' \
-                                -c 'LABEL quality.bandit_hash='${BANDIT_HASH}'' \
-                                quality_container ${QUALITY_IMAGE}:${TAG}
-                            
-                            # Push only the latest tag
-                            docker push ${QUALITY_IMAGE}:${TAG}
-                            
-                            echo "Quality reports saved to image:"
-                            echo "- ${QUALITY_IMAGE}:${TAG}"
-                        '''
+                        echo "Quality reports saved to image: ${QUALITY_IMAGE}:${TAG}-logs"
                     } catch (Exception e) {
                         echo "Error during quality checks: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
@@ -139,8 +92,7 @@ pipeline {
     post {
         always {
             sh '''#!/bin/bash
-                docker rm -f quality_container || true
-                docker rm -f flake8_check black_check bandit_check || true
+                docker rm -f quality_checker || true
                 docker logout
                 docker system prune -f
             '''
