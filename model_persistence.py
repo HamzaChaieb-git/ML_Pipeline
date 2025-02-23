@@ -1,95 +1,48 @@
-"""Main script to control and orchestrate the machine learning pipeline."""
+"""Module for saving and loading machine learning models."""
 
-import argparse
-from data_processing import prepare_data
-from model_training import train_model
-from model_evaluation import evaluate_model
-from model_persistence import save_model, load_model
+import joblib
+import os
 import mlflow
+from typing import Any
 
 
-def run_full_pipeline(train_file: str, test_file: str) -> None:
-    """Execute the complete ML pipeline with MLflow tracking."""
-    print("Running full pipeline...")
+def save_model(model: Any, filename: str = "model.joblib") -> None:
+    """
+    Save a model using joblib and log it with MLflow.
 
-    print("\n🔹 Preparing data...")
-    X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
+    Args:
+        model: Trained model to save.
+        filename (str): Name of the file to save the model to (default: "model.joblib").
 
-    print("\n🔹 Training model...")
-    model = train_model(X_train, y_train)
+    Raises:
+        IOError: If there’s an issue saving the model file.
+    """
+    if model is None:
+        raise ValueError("Model cannot be None")
 
-    print("\n🔹 Evaluating model...")
-    evaluate_model(model, X_test, y_test)
-
-    print("\n🔹 Saving model...")
-    save_model(model)
-
-    print("\n🔹 Loading and re-evaluating model...")
-    loaded_model = load_model()
-    evaluate_model(loaded_model, X_test, y_test)
-
-
-def parse_arguments() -> argparse.Namespace:
-    """Parse command-line arguments for pipeline actions."""
-    parser = argparse.ArgumentParser(description="Machine Learning Pipeline Controller")
-    parser.add_argument(
-        "action",
-        type=str,
-        nargs="?",
-        default="all",
-        help=(
-            "Action to perform: prepare_data, train_model, evaluate_model, "
-            "save_model, load_model, or run all steps by default."
-        ),
-    )
-    return parser.parse_args()
+    joblib.dump(model, filename)
+    print(f"Model saved as {filename}")
+    with mlflow.start_run():
+        mlflow.log_artifact(filename)
 
 
-def main() -> None:
-    """Main function to run the pipeline based on command-line arguments."""
-    # Set MLflow tracking URI (using SQLite backend)
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+def load_model(filename: str = "model.joblib") -> Any:
+    """
+    Load a model using joblib.
 
-    args = parse_arguments()
-    train_file = "churn-bigml-80.csv"
-    test_file = "churn-bigml-20.csv"
+    Args:
+        filename (str): Name of the file to load the model from (default: "model.joblib").
 
-    if args.action == "prepare_data":
-        print("\n🔹 Preparing data...")
-        prepare_data(train_file, test_file)
+    Returns:
+        The loaded model object.
 
-    elif args.action == "train_model":
-        print("\n🔹 Training model...")
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        train_model(X_train, y_train)
+    Raises:
+        FileNotFoundError: If the model file is not found.
+        IOError: If there’s an issue loading the model file.
+    """
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"Model file {filename} not found")
 
-    elif args.action == "evaluate_model":
-        print("\n🔹 Evaluating model...")
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        model = train_model(X_train, y_train)
-        evaluate_model(model, X_test, y_test)
-
-    elif args.action == "save_model":
-        print("\n🔹 Saving model...")
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        model = train_model(X_train, y_train)
-        save_model(model)
-
-    elif args.action == "load_model":
-        print("\n🔹 Loading model and re-evaluating...")
-        X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
-        loaded_model = load_model()
-        evaluate_model(loaded_model, X_test, y_test)
-
-    elif args.action == "all":
-        run_full_pipeline(train_file, test_file)
-
-    else:
-        print(
-            "\n❌ Invalid action! Choose from: prepare_data, train_model, "
-            "evaluate_model, save_model, load_model, or leave blank to run all."
-        )
-
-
-if __name__ == "__main__":
-    main()
+    model = joblib.load(filename)
+    print(f"Model loaded from {filename}")
+    return model
