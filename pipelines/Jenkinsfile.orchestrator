@@ -26,8 +26,9 @@ pipeline {
         
         stage('Code Quality Pipeline') {
             steps {
-                script {
-                    try {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Code Quality Pipeline'
                         def qualityBuild = build job: 'Code Quality Pipeline',
                             propagate: false,
                             wait: true
@@ -38,8 +39,6 @@ pipeline {
                         } else {
                             echo "Code quality pipeline completed successfully"
                         }
-                    } catch (Exception e) {
-                        echo "Quality pipeline failed but continuing: ${e.message}"
                     }
                 }
             }
@@ -49,6 +48,7 @@ pipeline {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                     script {
+                        env.FAILED_STAGE_NAME = 'Data Pipeline'
                         def dataBuild = build job: 'Data Pipeline',
                             parameters: [
                                 string(name: 'VERSION', value: "${BUILD_VERSION}")
@@ -67,6 +67,7 @@ pipeline {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                     script {
+                        env.FAILED_STAGE_NAME = 'Training Pipeline'
                         def trainingBuild = build job: 'Training Pipeline',
                             parameters: [
                                 string(name: 'VERSION', value: "${BUILD_VERSION}"),
@@ -82,13 +83,16 @@ pipeline {
         
         stage('Verify Images') {
             steps {
-                script {
-                    sh """
-                        docker pull ${QUALITY_IMAGE}:latest || exit 1
-                        docker pull ${DATA_IMAGE}:${BUILD_VERSION}-logs || exit 1
-                        docker pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs || exit 1
-                        echo "✅ All pipeline artifacts verified successfully"
-                    """
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    script {
+                        env.FAILED_STAGE_NAME = 'Verify Images'
+                        sh """
+                            docker pull ${QUALITY_IMAGE}:latest
+                            docker pull ${DATA_IMAGE}:${BUILD_VERSION}-logs
+                            docker pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs
+                            echo "✅ All pipeline artifacts verified successfully"
+                        """
+                    }
                 }
             }
         }
