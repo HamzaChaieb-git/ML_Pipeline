@@ -8,61 +8,6 @@ import numpy as np
 from typing import Any, Union, Dict
 from sklearn.metrics import log_loss, accuracy_score
 import matplotlib.pyplot as plt
-from xgboost.callback import TrainingCallback
-
-class MetricTracker(TrainingCallback):
-    """Custom callback to track training metrics."""
-    def __init__(self):
-        super().__init__()
-        self.train_loss_history = []
-        self.eval_loss_history = []
-        self.iteration = 0
-
-    def after_iteration(self, model, epoch, evals_log):
-        """Called after each iteration."""
-        if evals_log:
-            # Get the latest evaluation metrics
-            train_loss = evals_log.get('train', {}).get('logloss', [])[-1] if 'train' in evals_log else None
-            eval_loss = evals_log.get('eval', {}).get('logloss', [])[-1] if 'eval' in evals_log else None
-
-            # Store metrics
-            if train_loss is not None:
-                self.train_loss_history.append(train_loss)
-                mlflow.log_metric("train_loss", train_loss, step=self.iteration)
-
-            if eval_loss is not None:
-                self.eval_loss_history.append(eval_loss)
-                mlflow.log_metric("eval_loss", eval_loss, step=self.iteration)
-
-            # Plot training curve every 10 iterations
-            if self.iteration % 10 == 0:
-                self._plot_training_curve()
-
-            self.iteration += 1
-        return False
-
-    def _plot_training_curve(self):
-        """Create and log training curve plot."""
-        plt.figure(figsize=(10, 6))
-        
-        if self.train_loss_history:
-            plt.plot(self.train_loss_history, label='Training Loss', color='blue')
-        if self.eval_loss_history:
-            plt.plot(self.eval_loss_history, label='Validation Loss', color='red')
-        
-        plt.title('Training Progress')
-        plt.xlabel('Iteration')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.grid(True)
-        
-        # Save plot
-        plot_path = f"training_curve_{self.iteration}.png"
-        plt.savefig(plot_path)
-        plt.close()
-        
-        # Log to MLflow
-        mlflow.log_artifact(plot_path)
 
 def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: str = "1.0.0") -> xgb.XGBClassifier:
     """Train an XGBoost model with MLflow tracking."""
@@ -86,7 +31,6 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
         "colsample_bytree": 0.8,
         "enable_categorical": True,
         "tree_method": "hist",
-        "eval_metric": ["logloss", "error"]
     }
     
     mlflow.log_params(params)
@@ -100,19 +44,58 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
             X_train_final[col] = X_train_final[col].astype('category')
             X_val[col] = X_val[col].astype('category')
 
-    # Initialize callback
-    metric_tracker = MetricTracker()
-    
-    # Train with validation set and callback
+    # Train with validation set and collect eval results
+    eval_results = {}
     model.fit(
         X_train_final, 
         y_train_final,
         eval_set=[(X_train_final, y_train_final), (X_val, y_val)],
-        callbacks=[metric_tracker],
-        verbose=True
+        verbose=True,
+        eval_metric=['logloss', 'error'],
+        evals_result=eval_results
     )
 
-    # Create and log final feature importance plot
+    # Plot and log training progress
+    plt.figure(figsize=(12, 5))
+    
+    # Plot training metrics
+    epochs = len(eval_results['validation_0']['logloss'])
+    x_axis = range(epochs)
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(x_axis, eval_results['validation_0']['logloss'], 'b-', label='Train')
+    plt.plot(x_axis, eval_results['validation_1']['logloss'], 'r-', label='Validation')
+    plt.title('XGBoost Log Loss')
+    plt.xlabel('Iterations')
+    plt.ylabel('Log Loss')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(x_axis, eval_results['validation_0']['error'], 'b-', label='Train')
+    plt.plot(x_axis, eval_results['validation_1']['error'], 'r-', label='Validation')
+    plt.title('XGBoost Classification Error')
+    plt.xlabel('Iterations')
+    plt.ylabel('Error')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('training_curves.png')
+    plt.close()
+    
+    # Log training curves
+    mlflow.log_artifact('training_curves.png')
+
+    # Log each metric separately in MLflow
+    for i, (train_loss, val_loss) in enumerate(zip(
+        eval_results['validation_0']['logloss'],
+        eval_results['validation_1']['logloss']
+    )):
+        mlflow.log_metrics({
+            "train_loss": train_loss,
+            "val_loss": val_loss
+        }, step=i)
+
+    # Create and log feature importance plot
     if isinstance(X_train, pd.DataFrame):
         plt.figure(figsize=(12, 6))
         importance_df = pd.DataFrame({
