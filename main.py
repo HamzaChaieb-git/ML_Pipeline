@@ -1,30 +1,46 @@
-"""Main module for running the ML pipeline."""
-
-import argparse
-import os
-import mlflow
-import sys
-from data_processing import prepare_data as process_data
-from model_training import train_model as train_xgb_model
-from model_evaluation import evaluate_model as evaluate_xgb_model
-from model_persistence import save_model as save_xgb_model, load_model as load_xgb_model
-
-def setup_mlflow():
-    """Setup MLflow tracking."""
-    # Set the tracking URI
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+def register_model(model, metrics, run_id) -> None:
+    """Register model in MLflow Model Registry."""
+    model_name = "churn_prediction_model"
     
-    # Create or get the experiment
-    experiment_name = "churn_prediction"
+    # Get the model URI
+    model_uri = f"runs:/{run_id}/model"
+    
     try:
-        experiment_id = mlflow.create_experiment(experiment_name)
-    except Exception:
-        experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
-    
-    # Set the experiment
-    mlflow.set_experiment(experiment_name)
-    
-    return experiment_id
+        # Register model
+        model_version = mlflow.register_model(model_uri, model_name)
+        print(f"Model registered as version {model_version.version}")
+        
+        # Add description with metrics
+        description = f"Model metrics:\n"
+        description += f"Accuracy: {metrics['accuracy']:.4f}\n"
+        description += f"ROC AUC: {metrics['roc_auc']:.4f}\n"
+        description += f"F1 Score: {metrics['f1']:.4f}"
+        
+        client = mlflow.tracking.MlflowClient()
+        client.update_model_version(
+            name=model_name,
+            version=model_version.version,
+            description=description
+        )
+        
+        # Transition to Production if metrics are good enough
+        if metrics['accuracy'] > 0.95 and metrics['roc_auc'] > 0.90:
+            client.transition_model_version_stage(
+                name=model_name,
+                version=model_version.version,
+                stage="Production"
+            )
+            print("Model promoted to Production")
+        else:
+            client.transition_model_version_stage(
+                name=model_name,
+                version=model_version.version,
+                stage="Staging"
+            )
+            print("Model set to Staging")
+            
+    except Exception as e:
+        print(f"Error registering model: {str(e)}")
 
 def run_full_pipeline(train_file: str, test_file: str) -> None:
     """Execute the complete ML pipeline with MLflow tracking."""
@@ -61,37 +77,19 @@ def run_full_pipeline(train_file: str, test_file: str) -> None:
             mlflow.log_artifact("model.joblib")
             print("🔹 Model saved")
             
-            # Load and evaluate again
-            print("🔹 Loading model...")
-            loaded_model = load_xgb_model()
-            print("🔹 Model loaded")
+            # Register model
+            print("🔹 Registering model...")
+            register_model(model, metrics, run.info.run_id)
+            print("🔹 Model registered")
             
-            # Final evaluation
-            print("🔹 Final evaluation...")
-            final_metrics = evaluate_xgb_model(loaded_model, X_test, y_test)
-            
-            # Log any additional artifacts
-            if os.path.exists("feature_importance.json"):
-                mlflow.log_artifact("feature_importance.json")
-            if os.path.exists("confusion_matrix.csv"):
-                mlflow.log_artifact("confusion_matrix.csv")
+            # Load and verify registered model
+            client = mlflow.tracking.MlflowClient()
+            latest_model = client.get_latest_versions("churn_prediction_model", stages=["Production", "Staging"])[0]
+            print(f"Latest model version: {latest_model.version}")
+            print(f"Current stage: {latest_model.current_stage}")
             
             return model, metrics
                 
         except Exception as e:
             print(f"❌ Error in pipeline: {str(e)}")
             raise e
-
-def main() -> None:
-    """Main function to run the pipeline."""
-    train_file = "churn-bigml-80.csv"
-    test_file = "churn-bigml-20.csv"
-    
-    try:
-        run_full_pipeline(train_file, test_file)
-    except Exception as e:
-        print(f"❌ Error: {str(e)}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
