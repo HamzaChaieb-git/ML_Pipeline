@@ -15,60 +15,11 @@ pipeline {
     
     stages {
         stage('Docker Login') {
-    steps {
-        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-            sh '''
-                echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-            '''
-        }
-    }
-}
-        
-        stage('Check Requirements and Build Docker Image') {
             steps {
-                script {
-                    // Check if requirements.txt has changed since the last build
-                    def requirementsChanged = false
-                    def requirementsFile = "requirements.txt"
-                    
-                    // Get the current requirements.txt content
-                    def currentRequirements = readFile requirementsFile
-                    
-                    // Try to get the requirements.txt from the last successful build's artifacts
-                    def lastSuccessfulBuild = currentBuild.getPreviousSuccessfulBuild()
-                    if (lastSuccessfulBuild != null) {
-                        // Use the archived artifact from the last successful build
-                        def lastBuildNumber = lastSuccessfulBuild.number
-                        def lastRequirementsPath = "${JENKINS_HOME}/jobs/${JOB_NAME}/builds/${lastBuildNumber}/archive/${requirementsFile}"
-                        
-                        // Check if the archived file exists and read it
-                        if (fileExists(lastRequirementsPath)) {
-                            def lastRequirements = readFile(lastRequirementsPath).trim()
-                            if (lastRequirements != currentRequirements.trim()) {
-                                requirementsChanged = true
-                                echo "Requirements have changed. Rebuilding Docker image..."
-                            } else {
-                                echo "Requirements have not changed. Skipping rebuild."
-                            }
-                        } else {
-                            echo "No archived requirements.txt found from last build. Rebuilding Docker image..."
-                            requirementsChanged = true
-                        }
-                    } else {
-                        // No previous successful build, so rebuild by default
-                        requirementsChanged = true
-                        echo "No previous successful build found. Rebuilding Docker image..."
-                    }
-                    
-                    // If requirements changed or no previous build exists, rebuild the image
-                    if (requirementsChanged) {
-                        // Build the Docker image
-                        sh '''
-                            docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            echo "✅ Docker image rebuilt and pushed: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                        '''
-                    }
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh '''
+                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+                    '''
                 }
             }
         }
@@ -80,7 +31,6 @@ pipeline {
                         script {
                             echo "Pulling image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
                             sh '''
-                                docker login -u hamzachaieb01 --password-stdin < /dev/null || true
                                 docker pull ${DOCKER_IMAGE}:${DOCKER_TAG} || true
                             '''
                         }
@@ -234,7 +184,7 @@ pipeline {
         }
         always {
             echo "Pipeline execution complete!"
-            // Archive requirements.txt for future comparison
+            // Archive requirements.txt for future comparison (optional, since you're building locally)
             archiveArtifacts artifacts: 'requirements.txt', allowEmptyArchive: true
             sh '''
                 docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
