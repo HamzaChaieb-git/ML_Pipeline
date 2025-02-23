@@ -6,6 +6,7 @@ pipeline {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
         TAG = 'latest'
+        WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
     }
     
     options {
@@ -34,52 +35,57 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Create workspace for reports
                         sh 'mkdir -p quality_reports'
                         
                         // Run Flake8
-                        sh '''
+                        sh '''#!/bin/bash
                             docker run --name flake8_check \
-                                -v ${WORKSPACE}:/app \
-                                -w /app \
+                                -v "${WORKSPACE}":/workspace \
+                                -w /workspace \
                                 ${BASE_IMAGE}:${TAG} \
                                 flake8 . > quality_reports/flake8_report.txt || true
                             docker rm -f flake8_check || true
                         '''
                         
                         // Run Black
-                        sh '''
+                        sh '''#!/bin/bash
                             docker run --name black_check \
-                                -v ${WORKSPACE}:/app \
-                                -w /app \
+                                -v "${WORKSPACE}":/workspace \
+                                -w /workspace \
                                 ${BASE_IMAGE}:${TAG} \
                                 black --check . > quality_reports/black_report.txt 2>&1 || true
                             docker rm -f black_check || true
                         '''
                         
                         // Run Bandit
-                        sh '''
+                        sh '''#!/bin/bash
                             docker run --name bandit_check \
-                                -v ${WORKSPACE}:/app \
-                                -w /app \
+                                -v "${WORKSPACE}":/workspace \
+                                -w /workspace \
                                 ${BASE_IMAGE}:${TAG} \
-                                bandit -r . > quality_reports/bandit_report.txt 2>&1 || true
+                                bandit -r . -f txt > quality_reports/bandit_report.txt 2>&1 || true
                             docker rm -f bandit_check || true
                         '''
                         
                         // Create quality image with reports
-                        sh '''
+                        sh '''#!/bin/bash
                             # Create container for reports
                             docker create --name quality_container ${BASE_IMAGE}:${TAG}
                             
                             # Copy reports
-                            docker cp quality_reports/. quality_container:/app/quality_reports/
+                            docker cp quality_reports/. quality_container:/workspace/quality_reports/
                             
                             # Add timestamp to build
                             BUILD_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
                             
                             # Commit and push
-                            docker commit quality_container ${QUALITY_IMAGE}:${TAG}
+                            docker commit \
+                                -c 'WORKDIR /workspace' \
+                                -c 'LABEL build.timestamp='${BUILD_TIMESTAMP}'' \
+                                -c 'LABEL build.pipeline=code-quality' \
+                                quality_container ${QUALITY_IMAGE}:${TAG}
+                            
+                            # Tag with timestamp
                             docker tag ${QUALITY_IMAGE}:${TAG} ${QUALITY_IMAGE}:${BUILD_TIMESTAMP}
                             
                             # Push images
@@ -101,16 +107,27 @@ pipeline {
         stage('Analyze Reports') {
             steps {
                 script {
-                    // Read and display reports
-                    sh '''
+                    sh '''#!/bin/bash
                         echo "=== Flake8 Results ==="
-                        cat quality_reports/flake8_report.txt || echo "No Flake8 issues found"
+                        if [ -f quality_reports/flake8_report.txt ]; then
+                            cat quality_reports/flake8_report.txt
+                        else
+                            echo "No Flake8 issues found"
+                        fi
                         
-                        echo "\\n=== Black Results ==="
-                        cat quality_reports/black_report.txt || echo "No Black issues found"
+                        echo -e "\\n=== Black Results ==="
+                        if [ -f quality_reports/black_report.txt ]; then
+                            cat quality_reports/black_report.txt
+                        else
+                            echo "No Black issues found"
+                        fi
                         
-                        echo "\\n=== Bandit Results ==="
-                        cat quality_reports/bandit_report.txt || echo "No Bandit issues found"
+                        echo -e "\\n=== Bandit Results ==="
+                        if [ -f quality_reports/bandit_report.txt ]; then
+                            cat quality_reports/bandit_report.txt
+                        else
+                            echo "No Bandit issues found"
+                        fi
                     '''
                 }
             }
@@ -119,7 +136,7 @@ pipeline {
     
     post {
         always {
-            sh '''
+            sh '''#!/bin/bash
                 docker rm -f quality_container || true
                 docker rm -f flake8_check black_check bandit_check || true
                 docker logout
