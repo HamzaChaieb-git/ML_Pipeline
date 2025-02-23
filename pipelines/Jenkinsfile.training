@@ -60,7 +60,7 @@ pipeline {
                             docker exec model_trainer python -m main train_model
                             
                             # Evaluate model
-                            docker exec model_trainer python -m main evaluate_model
+                            docker exec model_trainer python -m main evaluate_model | tee model_output.txt
                             
                             # Save model
                             docker exec model_trainer python -m main save_model
@@ -69,18 +69,22 @@ pipeline {
                         // Get training timestamp
                         def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // Get accuracy directly from container output
+                        // Extract accuracy from output file
                         def accuracy = sh(
-                            script: """
-                                docker logs model_trainer 2>&1 | grep 'Model Accuracy:' | tail -1 | sed 's/.*Model Accuracy: //'
-                            """,
+                            script: "grep 'Model Accuracy:' model_output.txt | awk '{print \$3}'",
                             returnStdout: true
                         ).trim()
                         
                         // Verify we got the accuracy
                         if (!accuracy) {
-                            error "Failed to extract model accuracy from logs"
+                            error "Failed to extract model accuracy"
                         }
+                        
+                        // Save metrics for artifacts
+                        sh """
+                            mkdir -p metrics
+                            echo "accuracy=${accuracy}" > metrics/model_metrics.txt
+                        """
                         
                         // Create and push model images with metrics
                         withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
@@ -114,12 +118,6 @@ pipeline {
                             """
                         }
                         
-                        // Save metrics for artifacts
-                        sh """
-                            mkdir -p metrics
-                            echo "accuracy=${accuracy}" > metrics/model_metrics.txt
-                        """
-                        
                         archiveArtifacts artifacts: 'metrics/*.txt', fingerprint: true
                         
                     } catch (Exception e) {
@@ -138,6 +136,7 @@ pipeline {
                 docker rm -f data_container || true
                 docker logout
                 docker system prune -f
+                rm -f model_output.txt
             '''
             cleanWs()
         }
