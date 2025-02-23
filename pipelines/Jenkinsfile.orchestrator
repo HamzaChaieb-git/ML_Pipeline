@@ -1,32 +1,67 @@
 pipeline {
     agent any
-    
-    parameters {
-        string(name: 'DATA_IMAGE', description: 'Data image to use for training')
-        string(name: 'MLFLOW_URL', description: 'MLflow server URL for logging metrics')
-    }
-    
+
     environment {
+        BASE_IMAGE = 'hamzachaieb01/ml-pipeline:latest'
+        DATA_IMAGE = 'hamzachaieb01/ml-data'
+        QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
+        MLFLOW_TRACKING_URI = 'http://localhost:5001'
     }
-    
+
     stages {
-        stage('Train Model') {
+        stage('Docker Login') {
             steps {
-                withEnv(["MLFLOW_TRACKING_URI=${params.MLFLOW_URL}"]) {
-                    sh """
-                        docker run --rm \
-                            -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                            -v ${WORKSPACE}:/workspace \
-                            ${params.DATA_IMAGE} \
-                            python /workspace/train.py
-                        
-                        # Tag and push the resulting model image
-                        docker tag ${MODEL_IMAGE}:latest ${MODEL_IMAGE}:latest-logs
-                        docker push ${MODEL_IMAGE}:latest-logs
-                    """
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                 }
             }
+        }
+
+        stage('Process Data') {
+            steps {
+                sh """
+                    docker run -d --name data_processing ${BASE_IMAGE} tail -f /dev/null
+                    docker exec data_processing python -m main prepare_data
+                    docker commit data_processing ${DATA_IMAGE}:latest-logs
+                    docker push ${DATA_IMAGE}:latest-logs
+                    docker rm -f data_processing
+                """
+            }
+        }
+
+        stage('Code Quality Checks') {
+            steps {
+                sh """
+                    mkdir -p quality_reports
+                    docker run --name flake8_check ${BASE_IMAGE} flake8 --output-file=flake8_report.txt . || true
+                    docker cp flake8_check:/flake8_report.txt quality_reports/
+                    docker rm -f flake8_check
+                    docker create --name quality_container ${BASE_IMAGE}
+                    docker cp quality_reports/. quality_container:/quality_reports/
+                    docker commit quality_container ${QUALITY_IMAGE}:latest
+                    docker push ${QUALITY_IMAGE}:latest
+                    docker rm -f quality_container
+                """
+            }
+        }
+
+        stage('Train Model') {
+            steps {
+                sh """
+                    docker run --rm -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                        -v ${WORKSPACE}:/workspace ${DATA_IMAGE}:latest-logs python /workspace/train.py
+                    docker tag ${MODEL_IMAGE}:latest ${MODEL_IMAGE}:latest-logs
+                    docker push ${MODEL_IMAGE}:latest-logs
+                """
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker logout'
+            cleanWs()
         }
     }
 }
