@@ -28,21 +28,21 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Create data processor container
-                        docker run --name data_processor \
+                        // Create data container
+                        docker run --name data_container \
                             "${BASE_IMAGE}:${TAG}" \
                             bash -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
                         
                         // Create /app directory if it doesn’t exist and ensure proper permissions
-                        docker exec data_processor mkdir -p /app
-                        sh "docker exec data_processor chmod 777 /app"
+                        docker exec data_container mkdir -p /app
+                        sh "docker exec data_container chmod 777 /app"
                         
                         // Wait briefly to ensure output is written
                         sleep 5
                         
                         // Save processed data in new image with output
-                        docker commit data_processor ${DATA_IMAGE}:${TAG}-logs
-                        docker push ${DATA_IMAGE}:${TAG}-logs
+                        docker commit data_container "${DATA_IMAGE}:${TAG}-logs"
+                        docker push "${DATA_IMAGE}:${TAG}-logs"
                         
                         echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}-logs"
                     } catch (Exception e) {
@@ -57,7 +57,7 @@ pipeline {
     post {
         always {
             sh '''
-                docker rm -f data_processor || true
+                docker rm -f data_container || true
                 docker logout || true
             '''
         }
