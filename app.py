@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import pickle
+import joblib  # Replace pickle with joblib
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
@@ -13,8 +13,7 @@ model = None
 def load_model():
     global model
     try:
-        with open('model.pkl', 'rb') as f:
-            model = pickle.load(f)
+        model = joblib.load('model.joblib')  # Load model.joblib instead of model.pkl
         print("Model loaded successfully")
     except Exception as e:
         print(f"Error loading model: {e}")
@@ -23,7 +22,6 @@ def load_model():
 # Load model at startup
 load_model()
 
-# Define input model with the 8 features from prepare_data
 class ChurnPredictionInput(BaseModel):
     Total_day_minutes: float
     Customer_service_calls: int
@@ -35,10 +33,10 @@ class ChurnPredictionInput(BaseModel):
     Voice_mail_plan: str
 
 def preprocess_data(df):
-    """Preprocess the input data to match the model's training data"""
+    """Preprocess the input data and pad with default values for missing features"""
     df_processed = df.copy()
     
-    # Rename columns to match the exact names used in prepare_data
+    # Rename columns to match the training data
     column_mapping = {
         'Total_day_minutes': 'Total day minutes',
         'Customer_service_calls': 'Customer service calls',
@@ -57,18 +55,35 @@ def preprocess_data(df):
     for feature in categorical_features:
         df_processed[feature] = le.fit_transform(df_processed[feature])
     
-    # Ensure the column order matches the training data
-    expected_order = [
-        "Total day minutes",
-        "Customer service calls",
-        "International plan",
-        "Total intl minutes",
-        "Total intl calls",
-        "Total eve minutes",
-        "Number vmail messages",
-        "Voice mail plan",
+    # Define all expected features (based on the 19-feature model)
+    expected_features = [
+        'State', 'Account length', 'Area code', 'International plan', 'Voice mail plan',
+        'Number vmail messages', 'Total day minutes', 'Total day calls', 'Total day charge',
+        'Total eve minutes', 'Total eve calls', 'Total eve charge', 'Total night minutes',
+        'Total night calls', 'Total night charge', 'Total intl minutes', 'Total intl calls',
+        'Total intl charge', 'Customer service calls'
     ]
-    df_processed = df_processed[expected_order]
+    
+    # Add missing features with default values
+    default_values = {
+        'State': 0,  # Assuming LabelEncoder was used; use 0 as a placeholder
+        'Account length': 100,  # Average account length
+        'Area code': 415,  # Common area code
+        'Total day calls': 100,  # Average calls
+        'Total day charge': df_processed['Total day minutes'].iloc[0] * 0.17,  # Example rate: $0.17/min
+        'Total eve calls': 100,  # Average calls
+        'Total eve charge': df_processed['Total eve minutes'].iloc[0] * 0.085,  # Example rate: $0.085/min
+        'Total night minutes': 200,  # Average minutes
+        'Total night calls': 100,  # Average calls
+        'Total night charge': 200 * 0.045,  # Example rate: $0.045/min
+        'Total intl charge': df_processed['Total intl minutes'].iloc[0] * 0.27  # Example rate: $0.27/min
+    }
+    
+    for feature, value in default_values.items():
+        df_processed[feature] = value
+    
+    # Reorder columns to match model expectations
+    df_processed = df_processed[expected_features]
     
     return df_processed
 
