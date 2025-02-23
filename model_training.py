@@ -3,8 +3,9 @@
 import xgboost as xgb
 import mlflow
 import mlflow.xgboost
-from typing import Any
+import pandas as pd  # Added this import
 import numpy as np
+from typing import Any
 
 
 def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassifier:
