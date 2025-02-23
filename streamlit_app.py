@@ -27,14 +27,14 @@ with st.form("prediction_form"):
     if submitted:
         # Prepare the input data
         input_data = {
-            "Total day minutes": total_day_minutes,
-            "Customer service calls": customer_service_calls,
-            "International plan": international_plan,
-            "Total intl minutes": total_intl_minutes,
-            "Total intl calls": total_intl_calls,
-            "Total eve minutes": total_eve_minutes,
-            "Number vmail messages": number_vmail_messages,
-            "Voice mail plan": voice_mail_plan
+            "Total_day_minutes": total_day_minutes,
+            "Customer_service_calls": customer_service_calls,
+            "International_plan": international_plan,
+            "Total_intl_minutes": total_intl_minutes,
+            "Total_intl_calls": total_intl_calls,
+            "Total_eve_minutes": total_eve_minutes,
+            "Number_vmail_messages": number_vmail_messages,
+            "Voice_mail_plan": voice_mail_plan
         }
 
         try:
