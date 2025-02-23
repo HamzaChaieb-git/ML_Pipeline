@@ -21,24 +21,24 @@ with st.form("prediction_form"):
         total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, max_value=500.0, value=200.0)
         number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, max_value=100, value=0)
         voice_mail_plan = st.selectbox("Voice Mail Plan", ["No", "Yes"])
-    
+
     submitted = st.form_submit_button("Predict Churn")
-    
+
     if submitted:
-        # Prepare the input data EXACTLY matching the expected input
+        # Prepare the input data
         input_data = {
-            "Total_day_minutes": total_day_minutes,
-            "Customer_service_calls": customer_service_calls,
-            "International_plan": international_plan,
-            "Total_intl_minutes": total_intl_minutes,
-            "Total_intl_calls": total_intl_calls,
-            "Total_eve_minutes": total_eve_minutes,
-            "Number_vmail_messages": number_vmail_messages,
-            "Voice_mail_plan": voice_mail_plan
+            "Total day minutes": total_day_minutes,
+            "Customer service calls": customer_service_calls,
+            "International plan": international_plan,
+            "Total intl minutes": total_intl_minutes,
+            "Total intl calls": total_intl_calls,
+            "Total eve minutes": total_eve_minutes,
+            "Number vmail messages": number_vmail_messages,
+            "Voice mail plan": voice_mail_plan
         }
-        
+
         try:
-            # Make prediction request using localhost for Docker container
+            # Make prediction request
             response = requests.post("http://localhost:8000/predict", json=input_data)
             response.raise_for_status()
             
