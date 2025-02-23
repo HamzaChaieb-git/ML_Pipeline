@@ -21,20 +21,45 @@ pipeline {
             steps {
                 script {
                     try {
-                        sh '''
-                            # Run data processing
+                        sh """
+                            # Pull the base image to ensure it's up-to-date
+                            docker pull ${BASE_IMAGE}:${TAG}
+                            
+                            # Create data processor container and ensure /app directory exists
                             docker run --name data_processor \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
                                 --network ml_network \
                                 ${BASE_IMAGE}:${TAG} \
-                                python -m main prepare_data > /app/data_output.txt 2>&1
+                                tail -f /dev/null
+                            
+                            # Create /app directory if it doesn’t exist and ensure proper permissions
+                            docker exec data_processor mkdir -p /app
+                            docker exec data_processor chmod 777 /app
+                            
+                            # Process data and capture output
+                            docker exec data_processor sh -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
+                            
+                            # Wait briefly to ensure output is written
+                            sleep 5
+                            
+                            # Check if data_output.txt exists and has content
+                            if [ ! -f /app/data_output.txt ]; then
+                                echo "ERROR: data_output.txt not found in /app/. Checking container logs..."
+                                docker logs data_processor > /app/data_processor_logs.txt 2>&1 || echo "Failed to save logs to /app/data_processor_logs.txt"
+                                exit 1
+                            fi
+                            
+                            if [ ! -s /app/data_output.txt ]; then
+                                echo "ERROR: data_output.txt is empty in /app/"
+                                exit 1
+                            fi
                             
                             # Save processed data in new image with logs
                             docker commit data_processor ${DATA_IMAGE}:${TAG}-logs
                             docker push ${DATA_IMAGE}:${TAG}-logs
                             
                             echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}-logs"
-                        '''
+                        """
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
                         error "Data processing failed: ${e.message}"
