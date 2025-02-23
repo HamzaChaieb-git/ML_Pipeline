@@ -5,18 +5,18 @@ import os
 import mlflow
 from typing import Any
 
-def save_model(model: Any, filename: str = "model.joblib", run_id: str = None) -> None:
+
+def save_model(model: Any, filename: str = "model.joblib") -> None:
     """
     Save a model using joblib and log it with MLflow.
 
     Args:
         model: Trained model to save.
         filename (str): Name of the file to save the model to (default: "model.joblib").
-        run_id: Optional MLflow run ID to log to an existing run.
 
     Raises:
         ValueError: If the model is None.
-        IOError: If there’s an issue saving the model file.
+        IOError: If there's an issue saving the model file.
     """
     if model is None:
         raise ValueError("Model cannot be None")
@@ -24,15 +24,11 @@ def save_model(model: Any, filename: str = "model.joblib", run_id: str = None) -
     try:
         joblib.dump(model, filename)
         print(f"Model saved as {filename}")
+        # Log artifact in the current run without creating a new one
+        mlflow.log_artifact(filename)
     except Exception as e:
         raise IOError(f"Failed to save model to {filename}: {e}")
 
-    # Use existing run if run_id is provided and active, otherwise start a new one
-    if run_id and mlflow.active_run():
-        mlflow.log_artifact(filename)
-    else:
-        with mlflow.start_run():
-            mlflow.log_artifact(filename)
 
 def load_model(filename: str = "model.joblib") -> Any:
     """
@@ -46,7 +42,7 @@ def load_model(filename: str = "model.joblib") -> Any:
 
     Raises:
         FileNotFoundError: If the model file is not found.
-        IOError: If there’s an issue loading the model file.
+        IOError: If there's an issue loading the model file.
     """
     if not os.path.exists(filename):
         raise FileNotFoundError(f"Model file {filename} not found")
