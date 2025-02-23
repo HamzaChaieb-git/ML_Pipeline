@@ -36,18 +36,18 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
     except FileNotFoundError as e:
         raise FileNotFoundError(f"Could not find data files: {e}")
 
-    X_train = df_train[selected_features]
+    X_train = df_train[selected_features].copy()  # Avoid view/copy issues
     y_train = df_train["Churn"]
 
-    X_test = df_test[selected_features]
+    X_test = df_test[selected_features].copy()
     y_test = df_test["Churn"]
 
     le = LabelEncoder()
 
     categorical_features = ["International plan", "Voice mail plan"]
     for feature in categorical_features:
-        X_train[feature] = le.fit_transform(X_train[feature])
-        X_test[feature] = le.transform(X_test[feature])
+        X_train.loc[:, feature] = le.fit_transform(X_train[feature])
+        X_test.loc[:, feature] = le.transform(X_test[feature])
 
     y_train = le.fit_transform(y_train)
     y_test = le.transform(y_test)
