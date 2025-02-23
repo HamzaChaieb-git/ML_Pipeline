@@ -32,10 +32,10 @@ pipeline {
                     // Get the current requirements.txt content
                     def currentRequirements = readFile requirementsFile
                     
-                    // Try to get the requirements.txt from the last successful build (if it exists)
+                    // Try to get the requirements.txt from the last successful build's artifacts
                     def lastSuccessfulBuild = currentBuild.getPreviousSuccessfulBuild()
                     if (lastSuccessfulBuild != null) {
-                        def lastRequirements = lastSuccessfulBuild.getWorkspace()?.child(requirementsFile)?.read()?.trim()
+                        def lastRequirements = lastSuccessfulBuild.getArtifact('requirements.txt')?.read()?.trim()
                         if (lastRequirements != null && lastRequirements != currentRequirements.trim()) {
                             requirementsChanged = true
                             echo "Requirements have changed. Rebuilding Docker image..."
@@ -222,6 +222,8 @@ pipeline {
         }
         always {
             echo "Pipeline execution complete!"
+            // Archive requirements.txt for future comparison
+            archiveArtifacts artifacts: 'requirements.txt', allowEmptyArchive: true
             sh '''
                 docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
                 docker logout || true
