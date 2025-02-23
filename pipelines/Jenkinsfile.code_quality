@@ -36,23 +36,43 @@ pipeline {
                     try {
                         sh 'mkdir -p quality_reports'
                         
-                        # Run Flake8, Black, and Bandit, capturing output to logs in /app
+                        # Start quality checker container and ensure /app directory exists
                         docker run --name quality_checker \
                             -v "${WORKSPACE}":/workspace \
                             -w /workspace \
                             ${BASE_IMAGE}:${TAG} \
-                            bash -c "flake8 . > /app/flake8_report.txt 2>&1 && \
-                                    black --check . > /app/black_report.txt 2>&1 && \
-                                    bandit -r . -f txt > /app/bandit_report.txt 2>&1"
+                            tail -f /dev/null
                         
-                        # Create /app directory in container and ensure permissions (if not already done)
+                        # Create /app directory in container and ensure proper permissions
                         docker exec quality_checker mkdir -p /app
                         docker exec quality_checker chmod 777 /app
                         
-                        # Copy quality reports to /app for logging
-                        docker exec quality_checker cp /workspace/quality_reports/*.txt /app/
+                        # Run Flake8, Black, and Bandit, capturing output to logs in /app
+                        docker exec quality_checker bash -c "flake8 . > /app/flake8_report.txt 2>&1 && \
+                                                            black --check . > /app/black_report.txt 2>&1 && \
+                                                            bandit -r . -f txt > /app/bandit_report.txt 2>&1"
                         
-                        # Save quality reports in new image
+                        # Wait briefly to ensure output files are written
+                        sleep 5
+                        
+                        # Check if quality reports exist and have content
+                        for report in flake8_report.txt black_report.txt bandit_report.txt; do
+                            if [ ! -f "/app/\${report}" ]; then
+                                echo "ERROR: \${report} not found in /app/. Checking container logs..."
+                                docker logs quality_checker > /app/quality_checker_logs.txt 2>&1 || echo "Failed to save logs to /app/quality_checker_logs.txt"
+                                exit 1
+                            fi
+                            
+                            if [ ! -s "/app/\${report}" ]; then
+                                echo "ERROR: \${report} is empty in /app/"
+                                exit 1
+                            fi
+                        done
+                        
+                        # Copy quality reports to /app for logging (already done in the exec command)
+                        # docker exec quality_checker cp /workspace/quality_reports/*.txt /app/  # Not needed if output is directly to /app/
+                        
+                        # Save quality reports in new image with logs
                         docker commit quality_checker ${QUALITY_IMAGE}:${TAG}-logs
                         docker push ${QUALITY_IMAGE}:${TAG}-logs
                         
