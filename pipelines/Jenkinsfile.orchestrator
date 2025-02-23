@@ -30,19 +30,17 @@ pipeline {
         
         stage('Code Quality Pipeline') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    script {
-                        env.FAILED_STAGE_NAME = 'Code Quality Pipeline'
-                        def qualityBuild = build job: 'Code Quality Pipeline',
-                            propagate: false,
-                            wait: true
-                            
-                        if (qualityBuild.result != 'SUCCESS') {
-                            echo "Code quality checks failed with result: ${qualityBuild.result}"
-                            input message: 'Code quality checks failed. Continue anyway?', ok: 'Yes'
-                        } else {
-                            echo "Code quality pipeline completed successfully"
-                        }
+                script {
+                    env.FAILED_STAGE_NAME = 'Code Quality Pipeline'
+                    def qualityBuild = build job: 'Code Quality Pipeline',
+                        propagate: false,
+                        wait: true
+                        
+                    if (qualityBuild.result != 'SUCCESS') {
+                        echo "Code quality checks failed with result: ${qualityBuild.result}"
+                        input message: 'Code quality checks failed. Continue anyway?', ok: 'Yes'
+                    } else {
+                        echo "Code quality pipeline completed successfully"
                     }
                 }
             }
@@ -50,13 +48,11 @@ pipeline {
         
         stage('Data Pipeline') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    script {
-                        env.FAILED_STAGE_NAME = 'Data Pipeline'
-                        def dataBuild = build job: 'Data Pipeline',
-                            propagate: true
-                        echo "Data pipeline completed with result: ${dataBuild.result}"
-                    }
+                script {
+                    env.FAILED_STAGE_NAME = 'Data Pipeline'
+                    def dataBuild = build job: 'Data Pipeline',
+                        propagate: true
+                    echo "Data pipeline completed with result: ${dataBuild.result}"
                 }
             }
         }
@@ -66,35 +62,32 @@ pipeline {
                 expression { currentBuild.result != 'FAILURE' }
             }
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    script {
-                        env.FAILED_STAGE_NAME = 'Training Pipeline'
-                        def trainingBuild = build job: 'Training Pipeline',
-                            parameters: [
-                                string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:latest-logs")
-                            ],
-                            propagate: true
-                        echo "Training pipeline completed with result: ${trainingBuild.result}"
-                    }
+                script {
+                    env.FAILED_STAGE_NAME = 'Training Pipeline'
+                    def trainingBuild = build job: 'Training Pipeline',
+                        parameters: [
+                            string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:latest-logs"),
+                            string(name: 'MLFLOW_URL', value: "http://${HOST_IP}:5001")
+                        ],
+                        propagate: true
+                    echo "Training pipeline completed with result: ${trainingBuild.result}"
                 }
             }
         }
         
         stage('Verify Images') {
             steps {
-                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                    script {
-                        env.FAILED_STAGE_NAME = 'Verify Images'
-                        sh """
-                            echo "Attempting to pull ${QUALITY_IMAGE}:latest"
-                            docker pull ${QUALITY_IMAGE}:latest || { echo "Failed to pull ${QUALITY_IMAGE}:latest"; exit 1; }
-                            echo "Attempting to pull ${DATA_IMAGE}:latest-logs"
-                            docker pull ${DATA_IMAGE}:latest-logs || { echo "Failed to pull ${DATA_IMAGE}:latest-logs"; exit 1; }
-                            echo "Attempting to pull ${MODEL_IMAGE}:latest-logs"
-                            docker pull ${MODEL_IMAGE}:latest-logs || { echo "Failed to pull ${MODEL_IMAGE}:latest-logs"; exit 1; }
-                            echo "✅ All pipeline artifacts verified successfully"
-                        """
-                    }
+                script {
+                    env.FAILED_STAGE_NAME = 'Verify Images'
+                    sh """
+                        echo "Attempting to pull ${QUALITY_IMAGE}:latest"
+                        docker pull ${QUALITY_IMAGE}:latest || { echo "Failed to pull ${QUALITY_IMAGE}:latest"; exit 1; }
+                        echo "Attempting to pull ${DATA_IMAGE}:latest-logs"
+                        docker pull ${DATA_IMAGE}:latest-logs || { echo "Failed to pull ${DATA_IMAGE}:latest-logs"; exit 1; }
+                        echo "Attempting to pull ${MODEL_IMAGE}:latest-logs"
+                        docker pull ${MODEL_IMAGE}:latest-logs || { echo "Failed to pull ${MODEL_IMAGE}:latest-logs"; exit 1; }
+                        echo "✅ All pipeline artifacts verified successfully"
+                    """
                 }
             }
         }
@@ -112,7 +105,6 @@ pipeline {
                             docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:final
                             docker tag ${DATA_IMAGE}:latest-logs ${DATA_IMAGE}:final
                             docker tag ${MODEL_IMAGE}:latest-logs ${MODEL_IMAGE}:final
-                            
                             docker push ${QUALITY_IMAGE}:final
                             docker push ${DATA_IMAGE}:final
                             docker push ${MODEL_IMAGE}:final
@@ -130,9 +122,9 @@ pipeline {
                         # Create mlflow directory if it doesn't exist
                         mkdir -p ${WORKSPACE}/mlflow
 
-                        # Start MLflow server on host IP
+                        # Start MLflow server
                         docker run -d --name mlflow_server \
-                            -p ${HOST_IP}:5001:5001 \
+                            -p 5001:5001 \
                             -v ${WORKSPACE}/mlflow:/mlflow \
                             ${BASE_IMAGE}:latest \
                             mlflow server \
