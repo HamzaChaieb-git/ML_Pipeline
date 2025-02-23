@@ -8,20 +8,6 @@ import numpy as np
 from typing import Any, Union
 from sklearn.metrics import log_loss
 
-
-class MetricCallback:
-    def __init__(self):
-        self.evaluation_results = {}
-
-    def callback(self, env):
-        """Log metrics at each iteration"""
-        for data, metric in env.evaluation_result_list:
-            metric_name = f"{data}-{metric}"
-            value = env.evaluation_result_list[0][2]
-            mlflow.log_metric(metric_name, value, step=env.iteration)
-            self.evaluation_results[env.iteration] = value
-
-
 def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClassifier:
     """
     Train an XGBoost model and log it with MLflow for tracking.
@@ -50,7 +36,7 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
         "subsample": 0.8,                # Subsample ratio of the training instance
         "colsample_bytree": 0.8,         # Subsample ratio of columns when constructing each tree
         "enable_categorical": True,       # Enable categorical feature support
-        "tree_method": "hist"            # Use histogram-based algorithm for faster training
+        "tree_method": "hist",           # Use histogram-based algorithm for faster training
     }
     
     # Log parameters to MLflow
@@ -65,25 +51,15 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClass
         for col in categorical_columns:
             X_train[col] = X_train[col].astype('category')
 
-    # Create evaluation set and callback
-    eval_set = [(X_train, y_train)]
-    metric_callback = MetricCallback()
-
     # Fit the model
-    model.fit(
-        X_train, 
-        y_train,
-        eval_set=eval_set,
-        verbose=True,
-        callbacks=[metric_callback.callback]
-    )
+    model.fit(X_train, y_train, verbose=True)
 
     # Log training metrics
-    y_pred_prob = model.predict_proba(X_train)
-    train_loss = log_loss(y_train, y_pred_prob)
-    mlflow.log_metric("final_train_logloss", train_loss)
+    y_pred_proba = model.predict_proba(X_train)
+    train_loss = log_loss(y_train, y_pred_proba)
+    mlflow.log_metric("train_logloss", train_loss)
 
-    # Log the model to MLflow with signature
+    # Log the model to MLflow
     input_example = X_train.iloc[:5] if isinstance(X_train, pd.DataFrame) else X_train[:5]
     mlflow.xgboost.log_model(
         model, 
