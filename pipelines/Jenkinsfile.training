@@ -42,21 +42,44 @@ pipeline {
                 script {
                     try {
                         sh """
+                            # Create data container
                             docker create --name data_container ${DATA_IMAGE}:${TAG}
+                            
+                            # Create model trainer container and ensure /app directory exists
                             docker run -d --name model_trainer \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
-                            # Start MLflow run and train model, capturing output
+                            # Create /app directory if it doesn’t exist
+                            docker exec model_trainer mkdir -p /app
+                            
+                            # Train model and capture output
                             docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
                             
-                            # Get the run ID from training output
-                            RUN_ID=\$(grep 'MLflow run ID' /app/train_output.txt | awk '{print \$NF}')
+                            # Wait briefly to ensure output is written
+                            sleep 2
+                            
+                            # Get the run ID from training output, handle empty or missing file
+                            RUN_ID=\$(grep 'MLflow run ID' /app/train_output.txt | awk '{print \$NF}' || echo '')
+                            if [ -z "\$RUN_ID" ]; then
+                                echo "WARNING: Could not find MLflow run ID in train_output.txt. Checking MLflow logs..."
+                                RUN_ID=\$(docker exec model_trainer python3 -c '
+import mlflow
+client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
+runs = client.list_run_infos(experiment_id="0")  # Adjust experiment_id as needed
+for run in runs:
+    print(run.run_id)
+' | tail -n 1)
+                                if [ -z "\$RUN_ID" ]; then
+                                    echo "ERROR: Failed to retrieve MLflow run ID"
+                                    exit 1
+                                fi
+                            fi
                             echo "Run ID: \$RUN_ID"
                             
-                            # Evaluate model using the same run ID
+                            # Evaluate model using the run ID
                             docker exec model_trainer sh -c "python -u -m main evaluate_model > /app/model_output.txt 2>&1"
                             
                             # Save model
@@ -65,9 +88,28 @@ pipeline {
 
                         // Fetch metrics from MLflow server using the run ID
                         def runId = sh(
-                            script: "docker exec model_trainer grep 'MLflow run ID' /app/train_output.txt | awk '{print \$NF}'",
+                            script: "docker exec model_trainer grep 'MLflow run ID' /app/train_output.txt | awk '{print \$NF}' || echo ''",
                             returnStdout: true
                         ).trim()
+                        
+                        if (!runId) {
+                            echo "WARNING: Could not find run ID in train_output.txt. Attempting to fetch from MLflow..."
+                            runId = sh(
+                                script: """
+                                    docker exec model_trainer python3 -c '
+import mlflow
+client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
+runs = client.list_run_infos(experiment_id="0")  # Adjust experiment_id as needed
+print([run.run_id for run in runs][-1] if runs else "")
+'
+                                """,
+                                returnStdout: true
+                            ).trim()
+                            if (!runId) {
+                                error "Failed to retrieve MLflow run ID from MLflow or train_output.txt"
+                            }
+                        }
+                        echo "Resolved Run ID: ${runId}"
 
                         def metrics = sh(
                             script: """
