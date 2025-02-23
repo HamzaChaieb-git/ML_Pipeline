@@ -28,47 +28,20 @@ pipeline {
             steps {
                 script {
                     try {
-                        sh """
-                            # Pull the base image to ensure it's up-to-date
-                            docker pull ${BASE_IMAGE}:${TAG}
-                            
-                            # Create data processor container and ensure /app directory exists
-                            docker run --name data_processor \
-                                ${BASE_IMAGE}:${TAG} \
-                                tail -f /dev/null
-                            
-                            # Create /app directory if it doesn’t exist and ensure proper permissions
-                            docker exec data_processor mkdir -p /app
-                            sh "docker exec data_processor chmod 777 /app"
-                            
-                            # Process data and capture output, allowing failure but continuing
-                            docker exec data_processor sh -c "python -u -m main prepare_data > /app/data_output.txt 2>&1" || true
-                            
-                            # Wait briefly to ensure output is written
-                            sleep 5
-                            
-                            # Check if data_output.txt exists and has content, with fallback
-                            if [ ! -f /app/data_output.txt ]; then
-                                echo "WARNING: data_output.txt not found in /app/. Checking container logs..."
-                                docker logs data_processor > /app/data_processor_logs.txt 2>&1 || echo "Failed to save logs to /app/data_processor_logs.txt"
-                            fi
-                            
-                            if [ ! -s /app/data_output.txt ]; then
-                                echo "WARNING: data_output.txt is empty in /app/. Using logs as fallback..."
-                                if [ -f /app/data_processor_logs.txt ]; then
-                                    mv /app/data_processor_logs.txt /app/data_output.txt
-                                else
-                                    echo "WARNING: No logs or output available. Creating empty placeholder..."
-                                    echo "No data output generated" > /app/data_output.txt
-                                fi
-                            fi
-                            
-                            # Save processed data in new image with logs
-                            docker commit data_processor ${DATA_IMAGE}:${TAG}-logs
-                            docker push ${DATA_IMAGE}:${TAG}-logs
-                            
-                            echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}-logs"
-                        """
+                        // Create data processor container
+                        docker run --name data_processor \
+                            ${BASE_IMAGE}:${TAG} \
+                            bash -c "python -u -m main prepare_data"
+                        
+                        // Create /app directory if it doesn’t exist and ensure proper permissions
+                        docker exec data_processor mkdir -p /app
+                        sh "docker exec data_processor chmod 777 /app"
+                        
+                        // Save processed data in new image
+                        docker commit data_processor ${DATA_IMAGE}:${TAG}-logs
+                        docker push ${DATA_IMAGE}:${TAG}-logs
+                        
+                        echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}-logs"
                     } catch (Exception e) {
                         echo "Error during data processing: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
