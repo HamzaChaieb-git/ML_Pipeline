@@ -1,65 +1,52 @@
-import xgboost as xgb
-import mlflow
-import mlflow.xgboost
-import pandas as pd
-import numpy as np
-from typing import Any
-from mlflow.models.signature import infer_signature
+"""Module for evaluating machine learning models."""
 
-def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassifier:
+from sklearn.metrics import classification_report, confusion_matrix
+import mlflow
+from typing import Any
+
+def evaluate_model(model: Any, X_test: Any, y_test: Any, run_id: str = None) -> None:
     """
-    Train an XGBoost model and log it with MLflow for tracking.
+    Evaluate a model, log metrics to MLflow, and print classification metrics.
 
     Args:
-        X_train: Training features (e.g., pandas DataFrame or numpy array).
-        y_train: Training labels (e.g., pandas Series or numpy array).
+        model: Trained model (e.g., XGBoost model).
+        X_test: Testing features (e.g., pandas DataFrame or numpy array).
+        y_test: Testing labels (e.g., pandas Series or numpy array).
         run_id: Optional MLflow run ID to log to an existing run.
 
-    Returns:
-        xgb.XGBClassifier: Trained XGBoost model.
-
     Raises:
-        ValueError: If input data is invalid or empty.
+        ValueError: If input data or model is invalid.
     """
-    if (not isinstance(X_train, (np.ndarray, pd.DataFrame)) or 
-        not isinstance(y_train, (np.ndarray, pd.Series)) or 
-        len(X_train) == 0 or 
-        len(y_train) == 0):
-        raise ValueError("Training data or labels cannot be empty or invalid")
+    if len(X_test) == 0 or len(y_test) == 0 or model is None:
+        raise ValueError("Test data, labels, or model cannot be empty or None")
 
     # Use existing run if run_id is provided and active, otherwise start a new one
     if run_id and mlflow.active_run():
-        model = _train_model(X_train, y_train)
+        _evaluate_model(model, X_test, y_test)
     else:
         with mlflow.start_run():
-            model = _train_model(X_train, y_train)
+            _evaluate_model(model, X_test, y_test)
+
+def _evaluate_model(model: Any, X_test: Any, y_test: Any) -> None:
+    """Helper function to evaluate the model and log metrics."""
+    predictions = model.predict(X_test)
     
-    return model
+    print("\n🔹 Evaluating model...")
+    report = classification_report(y_test, predictions, output_dict=True)
+    confusion = confusion_matrix(y_test, predictions)
+    
+    mlflow.log_metrics({
+        "accuracy": report['accuracy'],
+        "precision_0": report['0']['precision'],
+        "recall_0": report['0']['recall'],
+        "f1_0": report['0']['f1-score'],
+        "precision_1": report['1']['precision'],
+        "recall_1": report['1']['recall'],
+        "f1_1": report['1']['f1-score'],
+    })
 
-def _train_model(X_train: Any, y_train: Any) -> xgb.XGBClassifier:
-    """Helper function to train the model and log parameters."""
-    params = {
-        "objective": "binary:logistic",
-        "max_depth": 6,
-        "learning_rate": 0.1,
-        "n_estimators": 100,
-        "random_state": 42,
-        "min_child_weight": 1,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "scale_pos_weight": len(y_train[y_train == 0]) / len(y_train[y_train == 1]),  # Handle class imbalance
-    }
-    mlflow.log_params(params)
-
-    model = xgb.XGBClassifier(**params)
-    model.fit(X_train, y_train)
-
-    # Log model with signature and input example
-    signature = infer_signature(X_train, model.predict(X_train))
-    input_example = X_train.iloc[:1] if isinstance(X_train, pd.DataFrame) else X_train[:1]
-    mlflow.xgboost.log_model(model, "xgboost_model", signature=signature, input_example=input_example)
-
-    run_id = mlflow.active_run().info.run_id
-    print(f"MLflow run ID: {run_id}")
-    print("🔹 Training model... Done")
-    return model"""Module for saving and loading machine learning models."""
+    print("\nClassification Report:")
+    print(classification_report(y_test, predictions))
+    print("\nConfusion Matrix:")
+    print(confusion)
+    print("🔹 Evaluation complete")
