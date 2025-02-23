@@ -9,29 +9,23 @@ pipeline {
     }
     
     options {
+        timeout(time: 1, unit: 'HOURS')
         disableConcurrentBuilds()
     }
     
     stages {
         stage('Docker Login') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh '''
-                        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-                    '''
-                }
+                sh '''
+                    echo "dckr_pat_CR7iXpPUQ_MegbA9oIIsyk4Jl5k" | docker login -u hamzachaieb01 --password-stdin
+                '''
             }
         }
         
         stage('Pull Docker Image') {
             steps {
                 retry(3) {
-                    script {
-                        echo "Pulling image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                        sh '''
-                            docker pull ${DOCKER_IMAGE}:${DOCKER_TAG} || true
-                        '''
-                    }
+                    sh 'docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}'
                 }
             }
         }
@@ -62,46 +56,56 @@ pipeline {
         
         stage('Prepare Data') {
             steps {
-                sh '''
-                    docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main prepare_data
-                    docker logs -f prepare_data || true
-                '''
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name prepare_data ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main prepare_data
+                        docker logs -f prepare_data || true
+                    '''
+                }
             }
         }
         
         stage('Train Model') {
             steps {
-                sh '''
-                    docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main train_model
-                    docker logs -f train_model || true
-                '''
+                timeout(time: 20, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name train_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main train_model
+                        docker logs -f train_model || true
+                    '''
+                }
             }
         }
         
         stage('Evaluate Model') {
             steps {
-                sh '''
-                    docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main evaluate_model
-                    docker logs -f evaluate_model || true
-                '''
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name evaluate_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main evaluate_model
+                        docker logs -f evaluate_model || true
+                    '''
+                }
             }
         }
         
         stage('Save Model') {
             steps {
-                sh '''
-                    docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main save_model
-                    docker logs -f save_model || true
-                '''
+                timeout(time: 5, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name save_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main save_model
+                        docker logs -f save_model || true
+                    '''
+                }
             }
         }
         
         stage('Load Model & Re-Evaluate') {
             steps {
-                sh '''
-                    docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main load_model
-                    docker logs -f load_model || true
-                '''
+                timeout(time: 10, unit: 'MINUTES') {
+                    sh '''
+                        docker run -d --name load_model ${DOCKER_IMAGE}:${DOCKER_TAG} python -m main load_model
+                        docker logs -f load_model || true
+                    '''
+                }
             }
         }
         
@@ -110,12 +114,8 @@ pipeline {
                 script {
                     retry(3) {
                         sh '''
-                            # Commit the container with the model into a new image
                             docker commit load_model ${FINAL_IMAGE}:${DOCKER_TAG}
-                            
-                            # Push the final image to Docker Hub
                             docker push ${FINAL_IMAGE}:${DOCKER_TAG}
-                            
                             echo "✅ Final image saved as ${FINAL_IMAGE}:${DOCKER_TAG}"
                         '''
                     }
@@ -171,8 +171,6 @@ pipeline {
         }
         always {
             echo "Pipeline execution complete!"
-            // Archive requirements.txt for future comparison (optional, since you're building locally)
-            archiveArtifacts artifacts: 'requirements.txt', allowEmptyArchive: true
             sh '''
                 docker rm -f linting formatting security prepare_data train_model evaluate_model save_model load_model || true
                 docker logout || true
