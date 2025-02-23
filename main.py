@@ -1,69 +1,59 @@
-def register_model(model, metrics, run_id) -> None:
-    """Register model in MLflow Model Registry."""
-    model_name = "churn_prediction_model"
+"""Main module for running the ML pipeline."""
+
+import argparse
+import os
+import mlflow
+import sys
+from datetime import datetime
+from data_processing import prepare_data as process_data
+from model_training import train_model as train_xgb_model
+from model_evaluation import evaluate_model as evaluate_xgb_model
+from model_persistence import save_model as save_xgb_model, load_model as load_xgb_model
+
+def setup_mlflow():
+    """Setup MLflow tracking."""
+    # Set the tracking URI to use SQLite
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
     
-    # Get the model URI
-    model_uri = f"runs:/{run_id}/model"
-    
+    # Create or get the experiment
+    experiment_name = "churn_prediction"
     try:
-        # Register model
-        model_version = mlflow.register_model(model_uri, model_name)
-        print(f"Model registered as version {model_version.version}")
-        
-        # Add description with metrics
-        description = f"Model metrics:\n"
-        description += f"Accuracy: {metrics['accuracy']:.4f}\n"
-        description += f"ROC AUC: {metrics['roc_auc']:.4f}\n"
-        description += f"F1 Score: {metrics['f1']:.4f}"
-        
-        client = mlflow.tracking.MlflowClient()
-        client.update_model_version(
-            name=model_name,
-            version=model_version.version,
-            description=description
-        )
-        
-        # Transition to Production if metrics are good enough
-        if metrics['accuracy'] > 0.95 and metrics['roc_auc'] > 0.90:
-            client.transition_model_version_stage(
-                name=model_name,
-                version=model_version.version,
-                stage="Production"
-            )
-            print("Model promoted to Production")
-        else:
-            client.transition_model_version_stage(
-                name=model_name,
-                version=model_version.version,
-                stage="Staging"
-            )
-            print("Model set to Staging")
-            
-    except Exception as e:
-        print(f"Error registering model: {str(e)}")
+        experiment_id = mlflow.create_experiment(experiment_name)
+    except:
+        experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
+    
+    mlflow.set_experiment(experiment_name)
+    return experiment_id
+
+def get_model_version():
+    """Generate model version based on date and time."""
+    now = datetime.now()
+    return now.strftime("%Y%m%d_%H%M")
 
 def run_full_pipeline(train_file: str, test_file: str) -> None:
     """Execute the complete ML pipeline with MLflow tracking."""
     print("Running full pipeline...")
     
-    # Setup MLflow
+    # Setup MLflow and get model version
     experiment_id = setup_mlflow()
+    model_version = get_model_version()
     
     # Start a new MLflow run
-    with mlflow.start_run(experiment_id=experiment_id, run_name="Full Pipeline") as run:
+    with mlflow.start_run(experiment_id=experiment_id, run_name=f"Full_Pipeline_v{model_version}") as run:
         try:
-            # Log input parameters
+            # Log input files
             mlflow.log_param("train_file", train_file)
             mlflow.log_param("test_file", test_file)
+            mlflow.log_param("model_version", model_version)
             
             # Data preparation
             print("🔹 Preparing data...")
             X_train, X_test, y_train, y_test = process_data(train_file, test_file)
             print("🔹 Data preparation complete")
             
-            # Model training
+            # Model training with version
             print("🔹 Training model...")
-            model = train_xgb_model(X_train, y_train)
+            model = train_xgb_model(X_train, y_train, model_version=model_version)
             print("🔹 Model training complete")
             
             # Model evaluation
@@ -71,25 +61,69 @@ def run_full_pipeline(train_file: str, test_file: str) -> None:
             metrics = evaluate_xgb_model(model, X_test, y_test)
             print("🔹 Evaluation complete")
             
-            # Save model
-            print("🔹 Saving model...")
-            save_xgb_model(model)
-            mlflow.log_artifact("model.joblib")
-            print("🔹 Model saved")
-            
-            # Register model
-            print("🔹 Registering model...")
-            register_model(model, metrics, run.info.run_id)
-            print("🔹 Model registered")
-            
-            # Load and verify registered model
+            # Register model in MLflow Model Registry
             client = mlflow.tracking.MlflowClient()
-            latest_model = client.get_latest_versions("churn_prediction_model", stages=["Production", "Staging"])[0]
-            print(f"Latest model version: {latest_model.version}")
-            print(f"Current stage: {latest_model.current_stage}")
+            
+            # Check if metrics meet production criteria
+            is_production_ready = (
+                metrics.get("accuracy", 0) > 0.95 and 
+                metrics.get("roc_auc", 0) > 0.90
+            )
+            
+            # Set the appropriate stage
+            stage = "Production" if is_production_ready else "Staging"
+            
+            try:
+                # Try to update model stage
+                model_details = client.get_latest_versions(f"churn_prediction_model_v{model_version}", stages=["None"])
+                if model_details:
+                    client.transition_model_version_stage(
+                        name=f"churn_prediction_model_v{model_version}",
+                        version=model_details[0].version,
+                        stage=stage
+                    )
+                    print(f"🔹 Model transitioned to {stage} stage")
+                
+                # Log model artifacts and metadata
+                if os.path.exists("training_curve_final.png"):
+                    mlflow.log_artifact("training_curve_final.png", "training_curves")
+                if os.path.exists("feature_importance.png"):
+                    mlflow.log_artifact("feature_importance.png", "feature_importance")
+                
+                print(f"🔹 Model version {model_version} registered successfully")
+                
+            except Exception as e:
+                print(f"⚠️ Warning: Could not update model stage: {str(e)}")
             
             return model, metrics
                 
         except Exception as e:
             print(f"❌ Error in pipeline: {str(e)}")
             raise e
+
+def main() -> None:
+    """Main function to run the pipeline."""
+    parser = argparse.ArgumentParser(description="Machine Learning Pipeline")
+    parser.add_argument(
+        "action",
+        type=str,
+        nargs="?",
+        default="all",
+        help="Action to perform: prepare_data, train_model, evaluate_model, save_model, or run all steps."
+    )
+    args = parser.parse_args()
+    
+    train_file = "churn-bigml-80.csv"
+    test_file = "churn-bigml-20.csv"
+
+    try:
+        if args.action == "all":
+            run_full_pipeline(train_file, test_file)
+        else:
+            print("\n❌ Invalid action! Choose 'all' to run the complete pipeline.")
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
