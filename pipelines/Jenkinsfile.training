@@ -4,43 +4,91 @@ pipeline {
     environment {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         DATA_IMAGE = 'hamzachaieb01/ml-data'
+        MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
+        WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
+    }
+    
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
     }
     
     stages {
         stage('Docker Login') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                usernameVariable: 'DOCKER_USERNAME', 
+                                passwordVariable: 'DOCKER_PASSWORD')]) {
                     sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                 }
             }
         }
         
-        stage('Pull Base Image') {
+        stage('Pull Images') {
             steps {
-                retry(3) {
-                    sh 'docker pull ${BASE_IMAGE}:${TAG}'
+                script {
+                    sh """
+                        docker pull ${BASE_IMAGE}:${TAG}
+                        docker pull ${DATA_IMAGE}:${TAG}
+                    """
                 }
             }
         }
         
-        stage('Process Data') {
+        stage('Train Model') {
             steps {
                 script {
-                    def baseImage = "${env.BASE_IMAGE}:${env.TAG}"
-                    def dataImageLogs = "${env.DATA_IMAGE}:${env.TAG}-logs"
                     try {
                         sh """
-                            docker run -d --name data_processing "${baseImage}" tail -f /dev/null
-                            docker exec data_processing bash -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
-                            docker commit data_processing "${dataImageLogs}"
-                            docker push "${dataImageLogs}"
-                            docker rm -f data_processing
-                            echo "✅ Data processing complete. Image: ${dataImageLogs}"
+                            # Create data container
+                            docker create --name data_container ${DATA_IMAGE}:${TAG}
+                            
+                            # Create model trainer container and ensure /app directory exists
+                            docker run -d --name model_trainer \
+                                --volumes-from data_container \
+                                ${BASE_IMAGE}:${TAG} \
+                                tail -f /dev/null
+                            
+                            # Create /app directory if it doesn’t exist and ensure proper permissions
+                            docker exec model_trainer mkdir -p /app
+                            docker exec model_trainer chmod 777 /app
+                            
+                            # Train model and capture output
+                            docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
+                            
+                            # Wait to ensure output is written
+                            sleep 10
+                            
+                            # Check if train_output.txt exists inside the container
+                            if ! docker exec model_trainer test -f /app/train_output.txt; then
+                                echo "ERROR: train_output.txt not found in /app/. Checking container logs..."
+                                docker logs model_trainer > train_logs.txt 2>&1 || echo "Failed to save logs to train_logs.txt"
+                                exit 1
+                            fi
+                            
+                            if docker exec model_trainer test ! -s /app/train_output.txt; then
+                                echo "ERROR: train_output.txt is empty in /app/"
+                                exit 1
+                            fi
+                            
+                            # Get the run ID from training output (optional)
+                            RUN_ID=\$(docker exec model_trainer grep 'MLflow run ID:' /app/train_output.txt | awk '{print \$NF}' || echo 'no_run_id')
+                            echo "Training Run ID (if applicable): \$RUN_ID"
+                            
+                            # Evaluate model
+                            docker exec model_trainer sh -c "python -u -m main evaluate_model > /app/model_output.txt 2>&1"
+                            
+                            # Save model
+                            docker exec model_trainer python -m main save_model
+                            
+                            # Save logs and metrics to image
+                            docker commit model_trainer ${MODEL_IMAGE}:${TAG}-logs
+                            docker push ${MODEL_IMAGE}:${TAG}-logs
                         """
                     } catch (Exception e) {
-                        echo "Error during data processing: ${e.message}"
-                        currentBuild.result = 'UNSTABLE'
+                        currentBuild.result = 'FAILURE'
+                        error "Model training failed: ${e.message}"
                     }
                 }
             }
@@ -49,13 +97,20 @@ pipeline {
     
     post {
         always {
-            sh 'docker logout || true'
+            sh '''
+                docker rm -f model_trainer || true
+                docker rm -f data_container || true
+                docker logout
+                docker system prune -f
+                rm -f model_output.txt train_output.txt train_logs.txt
+            '''
+            cleanWs()
         }
         success {
-            echo "Data pipeline complete. Processed data image: ${DATA_IMAGE}:${TAG}-logs"
+            echo "Training pipeline completed successfully"
         }
-        unstable {
-            echo "Data processing completed with issues, but pipeline finished. Image: ${DATA_IMAGE}:${TAG}-logs"
+        failure {
+            echo "Training pipeline failed"
         }
     }
 }
