@@ -38,7 +38,7 @@ pipeline {
                         
                         // Start quality checker container and ensure /app directory exists
                         docker run --name quality_checker \
-                            -v "${WORKSPACE}":/workspace \
+                            -v "${WORKSPACE_SAFE}":/workspace \
                             -w /workspace \
                             ${BASE_IMAGE}:${TAG} \
                             tail -f /dev/null
