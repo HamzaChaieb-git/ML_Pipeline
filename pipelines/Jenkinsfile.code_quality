@@ -38,9 +38,11 @@ pipeline {
                             "${BASE_IMAGE}:${TAG}" \
                             tail -f /dev/null
                         
-                        // Create /app directory in container and ensure proper permissions
+                        // Create /app directory in container
                         docker exec quality_checker mkdir -p /app
-                        docker exec quality_checker chmod 777 /app
+                        
+                        // Set permissions on /app using sh step
+                        sh "docker exec quality_checker chmod 777 /app"
                         
                         // Run Flake8, Black, and Bandit, capturing output to logs in /app
                         docker exec quality_checker bash -c "flake8 . > /app/flake8_report.txt 2>&1 && \
