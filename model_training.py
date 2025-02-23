@@ -20,6 +20,7 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
     X_train_final = X_train.drop(X_val.index)
     y_train_final = y_train[X_train_final.index]
 
+    # Define model parameters
     params = {
         "objective": "binary:logistic",
         "max_depth": 6,
@@ -31,96 +32,101 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
         "colsample_bytree": 0.8,
         "enable_categorical": True,
         "tree_method": "hist",
+        "use_label_encoder": False
     }
     
+    # Log parameters to MLflow
     mlflow.log_params(params)
     mlflow.log_param("model_version", model_version)
 
+    # Initialize model
     model = xgb.XGBClassifier(**params)
     
+    # Handle categorical features
     if isinstance(X_train, pd.DataFrame):
         categorical_columns = X_train.select_dtypes(include=['object']).columns
         for col in categorical_columns:
             X_train_final[col] = X_train_final[col].astype('category')
             X_val[col] = X_val[col].astype('category')
 
-    # Train with validation set and collect eval results
-    eval_results = {}
+    # Create eval set
+    eval_set = [(X_train_final, y_train_final), (X_val, y_val)]
+    eval_labels = ['train', 'validation']
+
+    # Train the model
     model.fit(
         X_train_final, 
         y_train_final,
-        eval_set=[(X_train_final, y_train_final), (X_val, y_val)],
-        verbose=True,
-        eval_metric=['logloss', 'error'],
-        evals_result=eval_results
+        eval_set=eval_set,
+        verbose=True
     )
 
-    # Plot and log training progress
+    # Get the evaluation results
+    results = model.evals_result()
+
+    # Plot learning curves
     plt.figure(figsize=(12, 5))
     
-    # Plot training metrics
-    epochs = len(eval_results['validation_0']['logloss'])
-    x_axis = range(epochs)
-    
-    plt.subplot(1, 2, 1)
-    plt.plot(x_axis, eval_results['validation_0']['logloss'], 'b-', label='Train')
-    plt.plot(x_axis, eval_results['validation_1']['logloss'], 'r-', label='Validation')
-    plt.title('XGBoost Log Loss')
-    plt.xlabel('Iterations')
-    plt.ylabel('Log Loss')
-    plt.legend()
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(x_axis, eval_results['validation_0']['error'], 'b-', label='Train')
-    plt.plot(x_axis, eval_results['validation_1']['error'], 'r-', label='Validation')
-    plt.title('XGBoost Classification Error')
+    # Plot training metrics if available
+    if results:
+        for i, metric in enumerate(['validation_0-error', 'validation_1-error']):
+            if metric in results:
+                plt.plot(results[metric], 
+                        label=f"{eval_labels[i]} error",
+                        alpha=0.8)
+                
+                # Log metrics to MLflow
+                for step, value in enumerate(results[metric]):
+                    mlflow.log_metric(f"{eval_labels[i]}_error", value, step=step)
+
+    plt.title('Training Metrics')
     plt.xlabel('Iterations')
     plt.ylabel('Error')
     plt.legend()
+    plt.grid(True)
     
-    plt.tight_layout()
+    # Save and log the plot
     plt.savefig('training_curves.png')
     plt.close()
-    
-    # Log training curves
     mlflow.log_artifact('training_curves.png')
 
-    # Log each metric separately in MLflow
-    for i, (train_loss, val_loss) in enumerate(zip(
-        eval_results['validation_0']['logloss'],
-        eval_results['validation_1']['logloss']
-    )):
-        mlflow.log_metrics({
-            "train_loss": train_loss,
-            "val_loss": val_loss
-        }, step=i)
-
-    # Create and log feature importance plot
+    # Create feature importance plot
     if isinstance(X_train, pd.DataFrame):
-        plt.figure(figsize=(12, 6))
         importance_df = pd.DataFrame({
             'feature': X_train.columns,
             'importance': model.feature_importances_
         }).sort_values('importance', ascending=True)
-        
+
+        plt.figure(figsize=(10, 6))
         plt.barh(importance_df['feature'], importance_df['importance'])
         plt.title('Feature Importance')
         plt.xlabel('Importance Score')
         plt.tight_layout()
         
-        # Save and log
+        # Save and log feature importance
         plt.savefig("feature_importance.png")
         plt.close()
         mlflow.log_artifact("feature_importance.png")
         
-        # Log feature importance values
+        # Log feature importance as CSV
         importance_df.to_csv("feature_importance.csv")
         mlflow.log_artifact("feature_importance.csv")
         
+        # Log individual feature importance scores
         for feature, importance in zip(importance_df['feature'], importance_df['importance']):
             mlflow.log_metric(f"importance_{feature}", importance)
 
-    # Log final model
+    # Calculate and log training metrics
+    train_pred = model.predict(X_train_final)
+    train_pred_proba = model.predict_proba(X_train_final)
+    
+    metrics = {
+        "train_accuracy": accuracy_score(y_train_final, train_pred),
+        "train_logloss": log_loss(y_train_final, train_pred_proba)
+    }
+    mlflow.log_metrics(metrics)
+
+    # Log the model
     signature = mlflow.models.infer_signature(X_train, model.predict(X_train))
     mlflow.xgboost.log_model(
         model, 
