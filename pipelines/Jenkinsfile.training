@@ -7,7 +7,7 @@ pipeline {
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
         WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
-        MLFLOW_TRACKING_URI = 'http://localhost:5001' // MLflow on host
+        MLFLOW_TRACKING_URI = 'http://localhost:5001'
     }
     
     options {
@@ -42,54 +42,57 @@ pipeline {
                 script {
                     try {
                         sh """
+                            # Create network for MLflow communication
+                            docker network create mlflow_net || true
+
                             # Create data container
-                            docker create --name data_container ${DATA_IMAGE}:${TAG}
+                            docker create --name data_container \
+                                --network mlflow_net \
+                                ${DATA_IMAGE}:${TAG}
                             
-                            # Run model trainer container with host network to access localhost:5001
+                            # Run model trainer container
                             docker run -d --name model_trainer \
-                                --network host \
+                                --network mlflow_net \
+                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
-                            # Set MLflow tracking URI inside the container
-                            docker exec model_trainer sh -c "export MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}"
-                            
-                            # Create /app directory if it doesn’t exist and ensure proper permissions
+                            # Create /app directory and set permissions
                             docker exec model_trainer mkdir -p /app
                             docker exec model_trainer chmod 777 /app
                             
                             # Train model and log to MLflow
-                            docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                model_trainer python -u -m main train_model > /app/train_output.txt 2>&1
                             
-                            # Wait to ensure output is written
                             sleep 10
                             
-                            # Check if train_output.txt exists
+                            # Verify output file exists
                             if ! docker exec model_trainer test -f /app/train_output.txt; then
-                                echo "ERROR: train_output.txt not found in /app/. Checking container logs..."
+                                echo "ERROR: train_output.txt not found"
                                 docker logs model_trainer > train_logs.txt 2>&1 || echo "Failed to save logs"
                                 exit 1
                             fi
                             
-                            if docker exec model_trainer test ! -s /app/train_output.txt; then
-                                echo "ERROR: train_output.txt is empty in /app/"
-                                exit 1
-                            fi
-                            
-                            # Get the run ID from training output (optional)
+                            # Get MLflow run ID
                             RUN_ID=\$(docker exec model_trainer grep 'MLflow run ID:' /app/train_output.txt | awk '{print \$NF}' || echo 'no_run_id')
                             echo "Training Run ID: \$RUN_ID"
                             
-                            # Evaluate model and log to MLflow
-                            docker exec model_trainer sh -c "python -u -m main evaluate_model > /app/model_output.txt 2>&1"
+                            # Evaluate and save model
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                model_trainer python -u -m main evaluate_model > /app/model_output.txt 2>&1
                             
-                            # Save model and log artifact to MLflow
-                            docker exec model_trainer python -m main save_model
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                model_trainer python -m main save_model
                             
-                            # Commit and push the updated image
+                            # Commit and push updated image
                             docker commit model_trainer ${MODEL_IMAGE}:${TAG}-logs
                             docker push ${MODEL_IMAGE}:${TAG}-logs
+                            
+                            # Cleanup
+                            docker rm -f model_trainer data_container || true
+                            docker network rm mlflow_net || true
                         """
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
