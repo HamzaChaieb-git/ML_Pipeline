@@ -52,18 +52,26 @@ pipeline {
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
-                            # Create /app directory if it doesn’t exist
+                            # Create /app directory if it doesn’t exist and ensure proper permissions
                             docker exec model_trainer mkdir -p /app
+                            docker exec model_trainer chmod 777 /app
                             
-                            # Train model and capture output
+                            # Train model and capture output, with verbose logging
                             docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
                             
-                            # Wait briefly to ensure output is written
-                            sleep 5  # Increased from 2 to ensure file writing completes
+                            # Wait longer to ensure output is written
+                            sleep 10  # Increased from 5 to ensure file writing completes
                             
-                            # Check if train_output.txt exists
+                            # Check if train_output.txt exists and has content
                             if [ ! -f /app/train_output.txt ]; then
-                                echo "ERROR: train_output.txt not found in /app/"
+                                echo "ERROR: train_output.txt not found in /app/. Checking container logs..."
+                                docker logs model_trainer > /app/train_logs.txt 2>&1
+                                echo "Container logs saved to /app/train_logs.txt"
+                                exit 1
+                            fi
+                            
+                            if [ ! -s /app/train_output.txt ]; then
+                                echo "ERROR: train_output.txt is empty in /app/"
                                 exit 1
                             fi
                             
@@ -74,7 +82,7 @@ pipeline {
                                 RUN_ID=\$(docker exec model_trainer python3 -c '
 import mlflow
 client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
-runs = client.search_runs(experiment_ids=["0"])  # Use search_runs instead of list_run_infos
+runs = client.search_runs(experiment_ids=["0"])  # Use search_runs
 print(runs[0].info.run_id if runs else "")
 ' || echo '')
                                 if [ -z "\$RUN_ID" ]; then
