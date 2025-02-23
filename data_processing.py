@@ -5,7 +5,6 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from typing import Tuple
 
-
 def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray]:
     """
     Prepare training and testing data with specific feature selection based on SHAP values.
@@ -21,6 +20,7 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
         FileNotFoundError: If the input CSV files are not found.
         ValueError: If required columns are missing in the data.
     """
+    print("🔹 Preparing data...")
     selected_features = [
         "Total day minutes",
         "Customer service calls",
@@ -50,15 +50,15 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
     y_test = df_test["Churn"]
 
     # Encode categorical features
+    le = LabelEncoder()
     categorical_features = ["International plan", "Voice mail plan"]
     for feature in categorical_features:
-        le = LabelEncoder()
         X_train[feature] = le.fit_transform(X_train[feature])
         X_test[feature] = le.transform(X_test[feature])
 
     # Encode target variable
-    le = LabelEncoder()
     y_train = le.fit_transform(y_train)
     y_test = le.transform(y_test)
 
+    print("🔹 Data preparation complete")
     return X_train, X_test, y_train, y_test
