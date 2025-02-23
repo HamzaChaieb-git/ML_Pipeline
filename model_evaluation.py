@@ -13,18 +13,18 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any, run_id: str = None) -> 
         model: Trained model (e.g., XGBoost model).
         X_test: Testing features (e.g., pandas DataFrame or numpy array).
         y_test: Testing labels (e.g., pandas Series or numpy array).
-        run_id: Optional MLflow run ID to log to an existing run.
+        run_id: Optional MLflow run ID to log to an existing run (if already active).
 
     Raises:
         ValueError: If input data or model is invalid.
     """
-    if X_test.empty or y_test.empty or model is None:
+    # Use len() instead of .empty to check for empty data
+    if len(X_test) == 0 or len(y_test) == 0 or model is None:
         raise ValueError("Test data, labels, or model cannot be empty or None")
 
-    # Use existing run if run_id is provided, otherwise start a new one
-    if run_id:
-        with mlflow.start_run(run_id=run_id):
-            _evaluate_model(model, X_test, y_test)
+    # If run_id is provided and there's an active run, use it; otherwise, start a new one
+    if run_id and mlflow.active_run():
+        _evaluate_model(model, X_test, y_test)
     else:
         with mlflow.start_run():
             _evaluate_model(model, X_test, y_test)
