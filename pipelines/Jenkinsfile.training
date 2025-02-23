@@ -17,26 +17,7 @@ pipeline {
     }
     
     stages {
-        stage('Docker Login') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
-                               usernameVariable: 'DOCKER_USERNAME', 
-                               passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                }
-            }
-        }
-        
-        stage('Pull Images') {
-            steps {
-                script {
-                    sh """
-                        docker pull ${BASE_IMAGE}:${TAG}
-                        docker pull ${DATA_IMAGE}:${TAG}
-                    """
-                }
-            }
-        }
+        // Previous stages remain the same...
         
         stage('Train Model') {
             steps {
@@ -49,95 +30,70 @@ pipeline {
                         
                         // Create and start model trainer container
                         sh """
-                            # Create container with a sleep command to keep it running
                             docker run -d --name model_trainer \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
                                 --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
-                            # Train model
                             docker exec model_trainer python -m main train_model
-                            
-                            # Evaluate model
                             docker exec model_trainer python -m main evaluate_model
-                            
-                            # Save model
                             docker exec model_trainer python -m main save_model
                         """
                         
                         // Get training timestamp
                         def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // Extract all metrics from evaluation output
-                        def metrics = sh(
+                        // First try to get metrics from logs since we can see them there
+                        def accuracy = sh(
                             script: '''
-                                # Try to read metrics from JSON file first
-                                METRICS=$(docker exec model_trainer python -c "
-                                import json
-                                try:
-                                    with open('/workspace/model_metrics.json') as f:
-                                        metrics = json.load(f)
-                                        print(' '.join([f'{k}={v}' for k, v in metrics.items()]))
-                                except:
-                                    print('')
-                                " || echo "")
-
-                                # If JSON not found, try to parse from text file
-                                if [ -z "$METRICS" ]; then
-                                    METRICS=$(docker exec model_trainer cat /workspace/model_metrics.txt 2>/dev/null | \
-                                    grep -oP '(?:Accuracy|Precision|Recall|F1|AUC|MAE|MSE|RMSE): \\K[0-9.]+' | \
-                                    awk '{printf("%s=%s ", tolower($1), $2)}' || echo "")
-                                fi
-
-                                # If still no metrics, try to parse from logs
-                                if [ -z "$METRICS" ]; then
-                                    METRICS=$(docker logs model_trainer 2>&1 | \
-                                    grep -oP '(?:Model |)(?:Accuracy|Precision|Recall|F1|AUC|MAE|MSE|RMSE): \\K[0-9.]+' | \
-                                    awk '{printf("%s=%s ", tolower($1), $2)}')
-                                fi
-
-                                echo "$METRICS"
+                                docker logs model_trainer 2>&1 | grep "Model Accuracy:" | tail -1 | awk '{print $3}'
                             ''',
                             returnStdout: true
                         ).trim()
                         
-                        // Parse individual metrics
-                        def metricsMap = [:]
-                        metrics.split().each { metric ->
-                            def (key, value) = metric.split('=')
-                            metricsMap[key] = value
+                        // Fallback to metrics file if log parsing fails
+                        if (!accuracy) {
+                            accuracy = sh(
+                                script: '''
+                                    docker exec model_trainer cat /workspace/model_metrics.txt 2>/dev/null | \
+                                    grep "Accuracy:" | awk '{print $2}' || echo "0.0"
+                                ''',
+                                returnStdout: true
+                            ).trim()
                         }
                         
-                        // Create label arguments for docker commit
-                        def labelArgs = metricsMap.collect { k, v -> 
-                            "-c 'LABEL model.${k}=${v}'"
-                        }.join(' ')
-                        
-                        // Create and push model images
+                        // Create and push model images with metrics
                         sh """
-                            # Commit container to image with all metrics as labels
+                            # Commit container with metrics
                             docker commit \
                                 -c 'LABEL training.timestamp=${timestamp}' \
-                                ${labelArgs} \
+                                -c 'LABEL model.accuracy=${accuracy}' \
                                 model_trainer ${MODEL_IMAGE}:${TAG}
                             
-                            # Tag with primary metrics
-                            docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy ?: '0.0'}
+                            # Create accuracy tag
+                            docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${accuracy}
                             docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
                             
                             # Push all tags
                             docker push ${MODEL_IMAGE}:${TAG}
-                            docker push ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy ?: '0.0'}
+                            docker push ${MODEL_IMAGE}:accuracy-${accuracy}
                             docker push ${MODEL_IMAGE}:${timestamp}
                             
                             echo "✅ Training complete. Images pushed:"
                             echo "- ${MODEL_IMAGE}:${TAG}"
-                            echo "- ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy ?: '0.0'}"
+                            echo "- ${MODEL_IMAGE}:accuracy-${accuracy}"
                             echo "- ${MODEL_IMAGE}:${timestamp}"
                             echo "\\nModel Metrics:"
-                            echo "${metrics}"
+                            echo "accuracy=${accuracy}"
+                            
+                            # Save metrics to build artifacts
+                            mkdir -p metrics
+                            echo "accuracy=${accuracy}" > metrics/model_metrics.txt
                         """
+                        
+                        // Archive metrics
+                        archiveArtifacts artifacts: 'metrics/*.txt', fingerprint: true
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
                         error "Model training failed: ${e.message}"
