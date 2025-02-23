@@ -7,7 +7,8 @@ pipeline {
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
-        MLFLOW_TRACKING_URI = 'http://172.25.175.49:5001'
+        // Using localhost for MLflow during development
+        MLFLOW_TRACKING_URI = 'http://localhost:5001'
     }
     
     options {
@@ -16,6 +17,29 @@ pipeline {
     }
     
     stages {
+        stage('Setup MLflow') {
+            steps {
+                script {
+                    env.FAILED_STAGE_NAME = 'Setup MLflow'
+                    // Create MLflow container with SQLite backend
+                    sh """
+                        docker run -d --name mlflow_server \
+                            -p 5001:5001 \
+                            -v \${WORKSPACE}/mlflow:/mlflow \
+                            python:3.9 bash -c "
+                                pip install mlflow==2.8.1 && 
+                                mlflow server \
+                                    --host 0.0.0.0 \
+                                    --port 5001 \
+                                    --backend-store-uri sqlite:///mlflow/mlflow.db \
+                                    --default-artifact-root /mlflow/artifacts"
+                    """
+                    // Wait for MLflow server to start
+                    sh 'sleep 10'
+                }
+            }
+        }
+
         stage('Docker Login') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
@@ -73,7 +97,6 @@ pipeline {
                                 string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:latest-logs")
                             ],
                             propagate: true
-                        archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
                         echo "Training pipeline completed with result: ${trainingBuild.result}"
                     }
                 }
@@ -131,17 +154,32 @@ pipeline {
                     script {
                         env.FAILED_STAGE_NAME = 'Log to MLflow'
                         sh """
-                            # Run ml-data:final to log data output
-                            docker run -d --name data_container ${DATA_IMAGE}:final tail -f /dev/null
-                            docker exec data_container bash -c "export MLFLOW_TRACKING_URI=http://localhost:5001; python -u -m main prepare_data"
-                            docker rm -f data_container
+                            # Create a network for MLflow communication
+                            docker network create mlflow_net || true
 
-                            # Run ml-model:final to log training and evaluation outputs
-                            docker run -d --name model_container ${MODEL_IMAGE}:final tail -f /dev/null
-                            docker exec model_container bash -c "export MLFLOW_TRACKING_URI=http://localhost:5001; python -u -m main train_model"
-                            docker exec model_container bash -c "export MLFLOW_TRACKING_URI=http://localhost:5001; python -u -m main evaluate_model"
-                            docker exec model_container bash -c "export MLFLOW_TRACKING_URI=http://localhost:5001; python -u -m main save_model"
-                            docker rm -f model_container
+                            # Run data container with network access
+                            docker run -d --name data_container \
+                                --network mlflow_net \
+                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                ${DATA_IMAGE}:final
+
+                            # Execute data processing with MLflow logging
+                            docker exec data_container python -u -m main prepare_data
+
+                            # Run model container
+                            docker run -d --name model_container \
+                                --network mlflow_net \
+                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                ${MODEL_IMAGE}:final
+
+                            # Execute model pipeline steps
+                            docker exec model_container python -u -m main train_model
+                            docker exec model_container python -u -m main evaluate_model
+                            docker exec model_container python -u -m main save_model
+
+                            # Cleanup
+                            docker rm -f data_container model_container
+                            docker network rm mlflow_net
                         """
                     }
                 }
@@ -182,14 +220,16 @@ pipeline {
             )
         }
         always {
-            echo "Pipeline execution complete!"
-            sh """
-                docker rmi ${QUALITY_IMAGE}:final || true
-                docker rmi ${DATA_IMAGE}:final || true
-                docker rmi ${MODEL_IMAGE}:final || true
-                docker logout || true
-                docker system prune -f || true
-            """
+            script {
+                sh """
+                    docker rm -f mlflow_server || true
+                    docker rmi ${QUALITY_IMAGE}:final || true
+                    docker rmi ${DATA_IMAGE}:final || true
+                    docker rmi ${MODEL_IMAGE}:final || true
+                    docker logout || true
+                    docker system prune -f || true
+                """
+            }
             cleanWs()
         }
     }
