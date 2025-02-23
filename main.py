@@ -9,12 +9,32 @@ from model_training import train_model as train_xgb_model
 from model_evaluation import evaluate_model as evaluate_xgb_model
 from model_persistence import save_model as save_xgb_model, load_model as load_xgb_model
 
+def setup_mlflow():
+    """Setup MLflow tracking."""
+    # Set the tracking URI
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    
+    # Create or get the experiment
+    experiment_name = "churn_prediction"
+    try:
+        experiment_id = mlflow.create_experiment(experiment_name)
+    except Exception:
+        experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
+    
+    # Set the experiment
+    mlflow.set_experiment(experiment_name)
+    
+    return experiment_id
+
 def run_full_pipeline(train_file: str, test_file: str) -> None:
     """Execute the complete ML pipeline with MLflow tracking."""
     print("Running full pipeline...")
     
+    # Setup MLflow
+    experiment_id = setup_mlflow()
+    
     # Start a new MLflow run
-    with mlflow.start_run(run_name="Full Pipeline") as run:
+    with mlflow.start_run(experiment_id=experiment_id, run_name="Full Pipeline") as run:
         try:
             # Log input parameters
             mlflow.log_param("train_file", train_file)
