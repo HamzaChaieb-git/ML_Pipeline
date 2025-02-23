@@ -3,7 +3,6 @@ from pydantic import BaseModel
 import pickle
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-import os
 
 app = FastAPI()
 
@@ -24,6 +23,7 @@ def load_model():
 # Load model at startup
 load_model()
 
+# Define input model with the 8 features from prepare_data
 class ChurnPredictionInput(BaseModel):
     Total_day_minutes: float
     Customer_service_calls: int
@@ -35,11 +35,10 @@ class ChurnPredictionInput(BaseModel):
     Voice_mail_plan: str
 
 def preprocess_data(df):
-    """Preprocess the input data"""
-    # Create a copy to avoid modifying the original
+    """Preprocess the input data to match the model's training data"""
     df_processed = df.copy()
     
-    # Rename columns to match training data
+    # Rename columns to match the exact names used in prepare_data
     column_mapping = {
         'Total_day_minutes': 'Total day minutes',
         'Customer_service_calls': 'Customer service calls',
@@ -57,6 +56,19 @@ def preprocess_data(df):
     categorical_features = ['International plan', 'Voice mail plan']
     for feature in categorical_features:
         df_processed[feature] = le.fit_transform(df_processed[feature])
+    
+    # Ensure the column order matches the training data
+    expected_order = [
+        "Total day minutes",
+        "Customer service calls",
+        "International plan",
+        "Total intl minutes",
+        "Total intl calls",
+        "Total eve minutes",
+        "Number vmail messages",
+        "Voice mail plan",
+    ]
+    df_processed = df_processed[expected_order]
     
     return df_processed
 
