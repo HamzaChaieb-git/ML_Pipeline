@@ -1,27 +1,64 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import joblib
+import pickle
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
+import os
+import subprocess
+import tempfile
 
 app = FastAPI()
 
+# Initialize model as None
+model = None
+
+def pull_model_from_docker():
+    """Pull the latest model from Docker container"""
+    try:
+        # Create a temporary container from the image
+        container_id = subprocess.check_output(
+            ["docker", "create", "hamzachaieb01/ml-trained:latest"],
+            text=True
+        ).strip()
+
+        # Create a temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = os.path.join(temp_dir, "model.pkl")
+            
+            # Copy the model file from the container
+            subprocess.run([
+                "docker", "cp",
+                f"{container_id}:/app/model.pkl",
+                model_path
+            ], check=True)
+            
+            # Load the model
+            with open(model_path, 'rb') as f:
+                model_obj = pickle.load(f)
+            
+            # Clean up the container
+            subprocess.run(["docker", "rm", container_id], check=True)
+            
+            return model_obj
+            
+    except Exception as e:
+        print(f"Error pulling model from Docker: {e}")
+        raise Exception(f"Failed to pull model from Docker: {e}")
+
 # Load the model when the app starts
-try:
-    model = joblib.load('model.joblib')
-except Exception as e:
-    print(f"Error loading model: {e}")
+def load_model():
+    global model
+    try:
+        model = pull_model_from_docker()
+        print("Model loaded successfully from Docker")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        raise Exception(f"Failed to load model: {e}")
+
+# Load model at startup
+load_model()
 
 class ChurnPredictionInput(BaseModel):
-    """Total day minutes": float
-    "Customer service calls": int
-    "International plan": str
-    "Total intl minutes": float
-    "Total intl calls": int
-    "Total eve minutes": float
-    "Number vmail messages": int
-    "Voice mail plan": str"""
-    
     Total_day_minutes: float
     Customer_service_calls: int
     International_plan: str
@@ -59,12 +96,24 @@ def preprocess_data(df):
 
 @app.post("/predict")
 async def predict(input_data: ChurnPredictionInput):
+    if model is None:
+        try:
+            load_model()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Model not loaded: {str(e)}")
+    
     try:
         # Convert input to DataFrame
         df = pd.DataFrame([input_data.dict()])
         
+        # Print input data for debugging
+        print("Input data before processing:", df.to_dict('records'))
+        
         # Preprocess the data
         df_processed = preprocess_data(df)
+        
+        # Print processed data for debugging
+        print("Processed data:", df_processed.to_dict('records'))
         
         # Make prediction
         prediction = model.predict(df_processed)
@@ -75,8 +124,22 @@ async def predict(input_data: ChurnPredictionInput):
             "churn_probability": float(probability[1])
         }
     except Exception as e:
+        print(f"Error during prediction: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 async def root():
-    return {"message": "Churn Prediction API is running. Use /predict for predictions."}
+    return {
+        "message": "Churn Prediction API is running. Use /predict for predictions.",
+        "model_loaded": model is not None,
+        "model_source": "Docker image: hamzachaieb01/ml-trained:latest"
+    }
+
+@app.post("/refresh-model")
+async def refresh_model():
+    """Endpoint to manually refresh the model from Docker"""
+    try:
+        load_model()
+        return {"message": "Model refreshed successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
