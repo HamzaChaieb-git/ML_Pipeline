@@ -108,4 +108,19 @@ async def predict(input_data: ChurnPredictionInput):
         print(f"Error during prediction: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Rest of the code remains the same...
+@app.get("/")
+async def root():
+    return {
+        "message": "Churn Prediction API is running. Use /predict for predictions.",
+        "model_loaded": model is not None,
+        "model_source": "Docker image: hamzachaieb01/ml-trained:latest"
+    }
+
+@app.post("/refresh-model")
+async def refresh_model():
+    """Endpoint to manually refresh the model from Docker"""
+    try:
+        load_model()
+        return {"message": "Model refreshed successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
