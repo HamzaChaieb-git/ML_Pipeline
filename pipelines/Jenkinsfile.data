@@ -1,4 +1,3 @@
-// pipelines/data-pipeline.groovy
 pipeline {
     agent any
     
@@ -6,7 +5,7 @@ pipeline {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         TAG = 'latest'
-        MLFLOW_TRACKING_URI = 'http://mlflow:5000'  // Adjust as needed
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
     }
     
     stages {
@@ -21,19 +20,25 @@ pipeline {
         stage('Process Data') {
             steps {
                 script {
-                    sh '''
-                        # Run data processing
-                        docker run --name data_processor \
-                            -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                            ${BASE_IMAGE}:${TAG} \
-                            python -m main prepare_data
-
-                        # Save processed data in new image
-                        docker commit data_processor ${DATA_IMAGE}:${TAG}
-                        docker push ${DATA_IMAGE}:${TAG}
-                        
-                        echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}"
-                    '''
+                    try {
+                        sh '''
+                            # Run data processing
+                            docker run --name data_processor \
+                                -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                                --network ml_network \
+                                ${BASE_IMAGE}:${TAG} \
+                                python -m main prepare_data > /app/data_output.txt 2>&1
+                            
+                            # Save processed data in new image with logs
+                            docker commit data_processor ${DATA_IMAGE}:${TAG}-logs
+                            docker push ${DATA_IMAGE}:${TAG}-logs
+                            
+                            echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}-logs"
+                        '''
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        error "Data processing failed: ${e.message}"
+                    }
                 }
             }
         }
@@ -47,7 +52,7 @@ pipeline {
             '''
         }
         success {
-            echo "Data pipeline complete. Processed data image: ${DATA_IMAGE}:${TAG}"
+            echo "Data pipeline complete. Processed data image: ${DATA_IMAGE}:${TAG}-logs"
         }
     }
 }
