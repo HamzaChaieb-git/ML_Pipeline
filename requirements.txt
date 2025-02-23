@@ -8,3 +8,6 @@ fastapi
 uvicorn
 joblib
 xgboost
+flake8
+black
+bandit
