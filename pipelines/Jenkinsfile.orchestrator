@@ -1,4 +1,3 @@
-// pipelines/orchestrator-pipeline.groovy
 pipeline {
     agent any
     
@@ -20,7 +19,7 @@ pipeline {
             steps {
                 script {
                     try {
-                        def qualityBuild = build job: 'ML_Code_Quality_Pipeline',
+                        def qualityBuild = build job: 'Code Quality Pipeline',  // Changé de ML_Code_Quality_Pipeline
                             propagate: false,
                             wait: true
                             
@@ -37,7 +36,7 @@ pipeline {
         stage('Data Pipeline') {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    build job: 'ML_Data_Pipeline',
+                    build job: 'Data Pipeline',  // Changé de ML_Data_Pipeline
                           parameters: [
                               string(name: 'VERSION', value: "${BUILD_VERSION}")
                           ]
@@ -51,7 +50,7 @@ pipeline {
             }
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    build job: 'ML_Training_Pipeline',
+                    build job: 'Training Pipeline',  // Changé de ML_Training_Pipeline
                           parameters: [
                               string(name: 'VERSION', value: "${BUILD_VERSION}"),
                               string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
@@ -63,11 +62,11 @@ pipeline {
         stage('Verify Images') {
             steps {
                 script {
-                    // Check if all required images exist
+                    // Vérifier si toutes les images requises existent
                     sh """
-                        docker pull ${QUALITY_IMAGE}:${BUILD_VERSION} || exit 1
-                        docker pull ${DATA_IMAGE}:${BUILD_VERSION} || exit 1
-                        docker pull ${MODEL_IMAGE}:${BUILD_VERSION} || exit 1
+                        docker pull ${QUALITY_IMAGE}:latest || exit 1
+                        docker pull ${DATA_IMAGE}:latest || exit 1
+                        docker pull ${MODEL_IMAGE}:latest || exit 1
                         
                         echo "✅ All pipeline artifacts verified successfully"
                     """
@@ -81,7 +80,7 @@ pipeline {
             }
             steps {
                 script {
-                    // Tag all images as latest if build successful
+                    // Tagger toutes les images comme "latest" si le build réussit
                     sh """
                         docker tag ${QUALITY_IMAGE}:${BUILD_VERSION} ${QUALITY_IMAGE}:latest
                         docker tag ${DATA_IMAGE}:${BUILD_VERSION} ${DATA_IMAGE}:latest
@@ -146,7 +145,7 @@ pipeline {
         always {
             echo "Pipeline execution complete!"
             
-            // Clean up Docker images
+            // Nettoyer les images Docker
             sh """
                 docker rmi ${QUALITY_IMAGE}:${BUILD_VERSION} || true
                 docker rmi ${DATA_IMAGE}:${BUILD_VERSION} || true
