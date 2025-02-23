@@ -138,8 +138,8 @@ print(json.dumps(metrics))
                             returnStdout: true
                         ).trim()
                         
-                        // Parse the JSON metrics
-                        def metricsMap = readJSON text: metrics
+                        // Parse the JSON metrics manually using Groovy's JsonSlurper
+                        def metricsMap = new groovy.json.JsonSlurper().parseText(metrics)
                         
                         // Create label arguments for all metrics
                         def labelArgs = metricsMap.collect { k, v ->
