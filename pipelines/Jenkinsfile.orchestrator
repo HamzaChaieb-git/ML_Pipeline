@@ -19,7 +19,7 @@ pipeline {
             steps {
                 script {
                     try {
-                        def qualityBuild = build job: 'Code Quality Pipeline',  // Changé de ML_Code_Quality_Pipeline
+                        def qualityBuild = build job: 'Code Quality Pipeline',
                             propagate: false,
                             wait: true
                             
@@ -36,7 +36,7 @@ pipeline {
         stage('Data Pipeline') {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    build job: 'Data Pipeline',  // Changé de ML_Data_Pipeline
+                    build job: 'Data Pipeline',
                           parameters: [
                               string(name: 'VERSION', value: "${BUILD_VERSION}")
                           ]
@@ -45,26 +45,25 @@ pipeline {
         }
         
         stage('Training Pipeline') {
-    when {
-        expression { currentBuild.result != 'FAILURE' }
-    }
-    steps {
-        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-            def trainingBuild = build job: 'Training Pipeline',
-                parameters: [
-                    string(name: 'VERSION', value: "${BUILD_VERSION}"),
-                    string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
-                ],
-                propagate: true
-            archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
+            when {
+                expression { currentBuild.result != 'FAILURE' }
+            }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    def trainingBuild = build job: 'Training Pipeline',
+                        parameters: [
+                            string(name: 'VERSION', value: "${BUILD_VERSION}"),
+                            string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}")
+                        ],
+                        propagate: true
+                    archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
+                }
+            }
         }
-    }
-}
         
         stage('Verify Images') {
             steps {
                 script {
-                    // Vérifier si toutes les images requises existent
                     sh """
                         docker pull ${QUALITY_IMAGE}:latest || exit 1
                         docker pull ${DATA_IMAGE}:latest || exit 1
@@ -82,7 +81,6 @@ pipeline {
             }
             steps {
                 script {
-                    // Tagger toutes les images comme "latest" si le build réussit
                     sh """
                         docker tag ${QUALITY_IMAGE}:${BUILD_VERSION} ${QUALITY_IMAGE}:latest
                         docker tag ${DATA_IMAGE}:${BUILD_VERSION} ${DATA_IMAGE}:latest
@@ -147,7 +145,6 @@ pipeline {
         always {
             echo "Pipeline execution complete!"
             
-            // Nettoyer les images Docker
             sh """
                 docker rmi ${QUALITY_IMAGE}:${BUILD_VERSION} || true
                 docker rmi ${DATA_IMAGE}:${BUILD_VERSION} || true
