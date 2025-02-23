@@ -1,0 +1,53 @@
+// pipelines/data-pipeline.groovy
+pipeline {
+    agent any
+    
+    environment {
+        BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
+        DATA_IMAGE = 'hamzachaieb01/ml-data'
+        TAG = 'latest'
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'  // Adjust as needed
+    }
+    
+    stages {
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+        
+        stage('Process Data') {
+            steps {
+                script {
+                    sh '''
+                        # Run data processing
+                        docker run --name data_processor \
+                            -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                            ${BASE_IMAGE}:${TAG} \
+                            python -m main prepare_data
+
+                        # Save processed data in new image
+                        docker commit data_processor ${DATA_IMAGE}:${TAG}
+                        docker push ${DATA_IMAGE}:${TAG}
+                        
+                        echo "✅ Data processing complete. Image: ${DATA_IMAGE}:${TAG}"
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            sh '''
+                docker rm -f data_processor || true
+                docker logout || true
+            '''
+        }
+        success {
+            echo "Data pipeline complete. Processed data image: ${DATA_IMAGE}:${TAG}"
+        }
+    }
+}
