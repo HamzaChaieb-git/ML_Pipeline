@@ -6,7 +6,6 @@ pipeline {
         QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
-        BUILD_VERSION = "${BUILD_NUMBER}-${new Date().format('yyyyMMdd')}"
         DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
     }
     
@@ -51,9 +50,6 @@ pipeline {
                     script {
                         env.FAILED_STAGE_NAME = 'Data Pipeline'
                         def dataBuild = build job: 'Data Pipeline',
-                            parameters: [
-                                string(name: 'VERSION', value: "${BUILD_VERSION}")
-                            ],
                             propagate: true
                         echo "Data pipeline completed with result: ${dataBuild.result}"
                     }
@@ -71,8 +67,7 @@ pipeline {
                         env.FAILED_STAGE_NAME = 'Training Pipeline'
                         def trainingBuild = build job: 'Training Pipeline',
                             parameters: [
-                                string(name: 'VERSION', value: "${BUILD_VERSION}"),
-                                string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:${BUILD_VERSION}-logs")
+                                string(name: 'DATA_IMAGE', value: "${DATA_IMAGE}:latest-logs")
                             ],
                             propagate: true
                         archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true, allowEmptyArchive: true
@@ -90,10 +85,10 @@ pipeline {
                         sh """
                             echo "Attempting to pull ${QUALITY_IMAGE}:latest"
                             docker pull ${QUALITY_IMAGE}:latest || { echo "Failed to pull ${QUALITY_IMAGE}:latest"; exit 1; }
-                            echo "Attempting to pull ${DATA_IMAGE}:${BUILD_VERSION}-logs"
-                            docker pull ${DATA_IMAGE}:${BUILD_VERSION}-logs || { echo "Failed to pull ${DATA_IMAGE}:${BUILD_VERSION}-logs"; exit 1; }
-                            echo "Attempting to pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs"
-                            docker pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs || { echo "Failed to pull ${MODEL_IMAGE}:${BUILD_VERSION}-logs"; exit 1; }
+                            echo "Attempting to pull ${DATA_IMAGE}:latest-logs"
+                            docker pull ${DATA_IMAGE}:latest-logs || { echo "Failed to pull ${DATA_IMAGE}:latest-logs"; exit 1; }
+                            echo "Attempting to pull ${MODEL_IMAGE}:latest-logs"
+                            docker pull ${MODEL_IMAGE}:latest-logs || { echo "Failed to pull ${MODEL_IMAGE}:latest-logs"; exit 1; }
                             echo "✅ All pipeline artifacts verified successfully"
                         """
                     }
@@ -109,21 +104,13 @@ pipeline {
                 script {
                     env.FAILED_STAGE_NAME = 'Tag Final Images'
                     sh """
-                        docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:${BUILD_VERSION}
-                        docker tag ${DATA_IMAGE}:${BUILD_VERSION}-logs ${DATA_IMAGE}:${BUILD_VERSION}
-                        docker tag ${MODEL_IMAGE}:${BUILD_VERSION}-logs ${MODEL_IMAGE}:${BUILD_VERSION}
+                        docker tag ${QUALITY_IMAGE}:latest ${QUALITY_IMAGE}:final
+                        docker tag ${DATA_IMAGE}:latest-logs ${DATA_IMAGE}:final
+                        docker tag ${MODEL_IMAGE}:latest-logs ${MODEL_IMAGE}:final
                         
-                        docker push ${QUALITY_IMAGE}:${BUILD_VERSION}
-                        docker push ${DATA_IMAGE}:${BUILD_VERSION}
-                        docker push ${MODEL_IMAGE}:${BUILD_VERSION}
-                        
-                        docker tag ${QUALITY_IMAGE}:${BUILD_VERSION} ${QUALITY_IMAGE}:latest
-                        docker tag ${DATA_IMAGE}:${BUILD_VERSION} ${DATA_IMAGE}:latest
-                        docker tag ${MODEL_IMAGE}:${BUILD_VERSION} ${MODEL_IMAGE}:latest
-                        
-                        docker push ${QUALITY_IMAGE}:latest
-                        docker push ${DATA_IMAGE}:latest
-                        docker push ${MODEL_IMAGE}:latest
+                        docker push ${QUALITY_IMAGE}:final
+                        docker push ${DATA_IMAGE}:final
+                        docker push ${MODEL_IMAGE}:final
                     """
                 }
             }
@@ -136,11 +123,10 @@ pipeline {
                 subject: "ML Pipeline - Build #${BUILD_NUMBER} - SUCCESS",
                 body: """
                     Complete ML Pipeline executed successfully!
-                    Build Version: ${BUILD_VERSION}
                     Images Available:
-                    - Quality: ${QUALITY_IMAGE}:${BUILD_VERSION}
-                    - Data: ${DATA_IMAGE}:${BUILD_VERSION}
-                    - Model: ${MODEL_IMAGE}:${BUILD_VERSION}
+                    - Quality: ${QUALITY_IMAGE}:final
+                    - Data: ${DATA_IMAGE}:final
+                    - Model: ${MODEL_IMAGE}:final
                     Check console output at ${BUILD_URL} to view the results.
                 """,
                 to: "${EMAIL_TO}",
@@ -153,7 +139,6 @@ pipeline {
                 subject: "ML Pipeline - Build #${BUILD_NUMBER} - FAILURE",
                 body: """
                     Pipeline execution failed!
-                    Build Version: ${BUILD_VERSION}
                     Failed Stage: ${env.FAILED_STAGE_NAME ?: 'Unknown'}
                     Check console output at ${BUILD_URL} to view the results.
                     The full build log is attached.
@@ -166,11 +151,9 @@ pipeline {
         always {
             echo "Pipeline execution complete!"
             sh """
-                docker rmi ${QUALITY_IMAGE}:${BUILD_VERSION} || true
-                docker rmi ${DATA_IMAGE}:${BUILD_VERSION} || true
-                docker rmi ${MODEL_IMAGE}:${BUILD_VERSION} || true
-                docker rmi ${DATA_IMAGE}:${BUILD_VERSION}-logs || true
-                docker rmi ${MODEL_IMAGE}:${BUILD_VERSION}-logs || true
+                docker rmi ${QUALITY_IMAGE}:final || true
+                docker rmi ${DATA_IMAGE}:final || true
+                docker rmi ${MODEL_IMAGE}:final || true
                 docker logout || true
                 docker system prune -f || true
             """
