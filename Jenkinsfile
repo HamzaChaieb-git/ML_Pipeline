@@ -23,12 +23,20 @@ pipeline {
         }
         
         stage('Pull Docker Image') {
-            steps {
-                retry(3) {
-                    sh 'docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}'
+    steps {
+        timeout(time: 10, unit: 'MINUTES') {
+            retry(3) {
+                script {
+                    echo "Pulling image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    sh '''
+                        docker login -u hamzachaieb01 --password-stdin < /dev/null || true
+                        docker pull ${DOCKER_IMAGE}:${DOCKER_TAG} || true
+                    '''
                 }
             }
         }
+    }
+}
         
         stage('Linting & Code Quality') {
             steps {
