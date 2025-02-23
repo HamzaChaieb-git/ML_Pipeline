@@ -1,52 +1,117 @@
+"""Main script to control and orchestrate the machine learning pipeline with MLflow tracking."""
+
 import argparse
-import sys
 import os
+import mlflow
+import sys
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+import joblib
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Set MLflow tracking URI to use a local SQLite database
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
 
 def prepare_data(train_file: str = "churn-bigml-80.csv", test_file: str = "churn-bigml-20.csv"):
-    """Prepare data and save output to a local file."""
+    """Prepare data by loading and splitting CSV files, returning train/test splits."""
     print("🔹 Preparing data...")
+    # Load data (assuming CSV files exist or use placeholders)
+    try:
+        train_df = pd.read_csv(train_file)
+        test_df = pd.read_csv(test_file)
+    except FileNotFoundError:
+        print("Warning: CSV files not found, using placeholder data.")
+        # Placeholder data
+        np.random.seed(42)
+        data = pd.DataFrame({
+            'feature1': np.random.rand(1000),
+            'feature2': np.random.rand(1000),
+            'target': np.random.randint(0, 2, 1000)
+        })
+        train_df, test_df = train_test_split(data, test_size=0.2, random_state=42)
+
+    # Assume 'target' is the target column, features are all others
+    X_train = train_df.drop('target', axis=1)
+    y_train = train_df['target']
+    X_test = test_df.drop('target', axis=1)
+    y_test = test_df['target']
+
     output_file = os.path.join(os.getcwd(), 'data_output.txt')
     with open(output_file, 'w') as f:
         f.write("Data preparation completed\n")
     print(f"🔹 Data preparation complete. File saved at: {output_file}")
-    return None, None, None, None  # Placeholder for X_train, X_test, y_train, y_test
+    with mlflow.start_run(run_name="Data Preparation"):
+        mlflow.log_param("step", "prepare_data")
+        mlflow.log_artifact(output_file)
+    return X_train, X_test, y_train, y_test
 
-def train_model(X_train=None, y_train=None):
-    """Train model and save output to a local file."""
+def train_model(X_train, y_train, run_id=None):
+    """Train an XGBoost model and save output to a local file, logging to MLflow."""
     print("🔹 Training model...")
+    model = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+    model.fit(X_train, y_train)
+    
     output_file = os.path.join(os.getcwd(), 'train_output.txt')
     with open(output_file, 'w') as f:
         f.write("Model training completed\nTraining XGBoost model...\n")
     print(f"🔹 Model training complete. File saved at: {output_file}")
-    return None  # Placeholder for model object
+    
+    with mlflow.start_run(run_name="Model Training"):
+        mlflow.log_param("step", "train_model")
+        mlflow.log_metric("example_metric", 0.95)  # Placeholder, replace with actual metric
+        mlflow.log_artifact(output_file)
+        mlflow.sklearn.log_model(model, "model")
+    return model
 
-def evaluate_model(model=None, X_test=None, y_test=None):
-    """Evaluate model and save output to a local file."""
+def evaluate_model(model, X_test, y_test, run_id=None):
+    """Evaluate the model and save output to a local file, logging to MLflow."""
     print("🔹 Evaluating model...")
+    y_pred = model.predict(X_test)
+    
     output_file = os.path.join(os.getcwd(), 'model_output.txt')
     with open(output_file, 'w') as f:
-        f.write("Model evaluation completed\nModel Accuracy: 0.9505\n")
+        f.write("Model evaluation completed\n")
+        f.write("Classification Report:\n")
+        f.write(str(classification_report(y_test, y_pred)) + "\n")
+        f.write("Confusion Matrix:\n")
+        f.write(str(confusion_matrix(y_test, y_pred)) + "\n")
+    
     print(f"🔹 Evaluation complete. File saved at: {output_file}")
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
+    print("\nConfusion Matrix:")
+    print(confusion_matrix(y_test, y_pred))
+    
+    with mlflow.start_run(run_name="Model Evaluation"):
+        mlflow.log_param("step", "evaluate_model")
+        mlflow.log_metric("example_score", 0.95)  # Placeholder, replace with actual metric
+        mlflow.log_artifact(output_file)
 
-def save_model(model=None):
-    """Save model to a local file."""
+def save_model(model, run_id=None):
+    """Save the model to a local file, logging to MLflow."""
     print("🔹 Saving model...")
-    output_file = os.path.join(os.getcwd(), 'model.pkl')
-    with open(output_file, 'w') as f:
-        f.write("dummy model")  # Placeholder
-    print(f"Model saved as model.pkl at: {output_file}")
+    output_file = os.path.join(os.getcwd(), 'model.joblib')
+    joblib.dump(model, output_file)
+    print(f"Model saved as model.joblib at: {output_file}")
+    
+    with mlflow.start_run(run_name="Model Saving"):
+        mlflow.log_artifact(output_file)
 
 def load_model():
-    """Load model from a local file (placeholder function)."""
+    """Load the model from a local file, logging to MLflow."""
     print("🔹 Loading model...")
-    output_file = os.path.join(os.getcwd(), 'model.pkl')
-    with open(output_file, 'r') as f:
-        content = f.read()
-    print("Model loaded")
-    return None  # Placeholder for loaded model
+    output_file = os.path.join(os.getcwd(), 'model.joblib')
+    model = joblib.load(output_file)
+    print("Model loaded from model.joblib")
+    
+    with mlflow.start_run(run_name="Model Loading"):
+        mlflow.log_param("step", "load_model")
+    return model
 
 def run_full_pipeline(train_file: str, test_file: str) -> None:
-    """Execute the complete ML pipeline."""
+    """Execute the complete ML pipeline with MLflow tracking."""
     print("Running full pipeline...")
     
     X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
