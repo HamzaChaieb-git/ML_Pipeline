@@ -1,89 +1,102 @@
-"""Module for evaluating machine learning models."""
+"""Module for training machine learning models using XGBoost and MLflow tracking."""
 
-import numpy as np
-from sklearn.metrics import (
-    classification_report, 
-    confusion_matrix, 
-    roc_auc_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    accuracy_score,
-    log_loss
-)
+import xgboost as xgb
 import mlflow
-from typing import Any
+import mlflow.xgboost
+import pandas as pd
+import numpy as np
+from typing import Any, Union
+from sklearn.metrics import log_loss
 
 
-def evaluate_model(model: Any, X_test: Any, y_test: Any) -> None:
+def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any) -> xgb.XGBClassifier:
     """
-    Evaluate a model, log metrics to MLflow, and print classification metrics.
+    Train an XGBoost model and log it with MLflow for tracking.
 
     Args:
-        model: Trained model (e.g., XGBoost model).
-        X_test: Testing features (e.g., pandas DataFrame or numpy array).
-        y_test: Testing labels (e.g., pandas Series or numpy array).
+        X_train: Training features (pandas DataFrame or numpy array)
+        y_train: Training labels (pandas Series or numpy array)
+
+    Returns:
+        xgb.XGBClassifier: Trained XGBoost model
 
     Raises:
-        ValueError: If input data or model is invalid.
+        ValueError: If input data is invalid or empty
     """
-    if len(X_test) == 0 or len(y_test) == 0 or model is None:
-        raise ValueError("Test data, labels, or model cannot be empty or None")
+    if isinstance(X_train, pd.DataFrame) and X_train.empty or y_train is None or len(y_train) == 0:
+        raise ValueError("Training data or labels cannot be empty")
 
-    print("\n🔹 Evaluating model...")
-    
-    # Get predictions
-    y_pred = model.predict(X_test)
-    y_pred_proba = model.predict_proba(X_test)
-    
-    # Calculate detailed metrics
-    metrics = {
-        "accuracy": accuracy_score(y_test, y_pred),
-        "precision": precision_score(y_test, y_pred),
-        "recall": recall_score(y_test, y_pred),
-        "f1_score": f1_score(y_test, y_pred),
-        "roc_auc_score": roc_auc_score(y_test, y_pred_proba[:, 1]),
-        "log_loss": log_loss(y_test, y_pred_proba)
+    # Define model parameters
+    params = {
+        "objective": "binary:logistic",  # Binary classification
+        "max_depth": 6,                  # Maximum depth of trees
+        "learning_rate": 0.1,            # Step size shrinkage
+        "n_estimators": 100,             # Number of boosting rounds
+        "random_state": 42,              # For reproducibility
+        "min_child_weight": 1,           # Minimum sum of instance weight needed in a child
+        "subsample": 0.8,                # Subsample ratio of the training instance
+        "colsample_bytree": 0.8,         # Subsample ratio of columns when constructing each tree
+        "enable_categorical": True,       # Enable categorical feature support
+        "tree_method": "hist",           # Use histogram-based algorithm for faster training
+        "eval_metric": ["logloss", "error"]  # Metrics to evaluate during training
     }
     
-    # Calculate class-specific metrics
-    report = classification_report(y_test, y_pred, output_dict=True)
-    confusion = confusion_matrix(y_test, y_pred)
-    
-    # Add class-specific metrics
-    metrics.update({
-        "precision_class_0": report['0']['precision'],
-        "recall_class_0": report['0']['recall'],
-        "f1_score_class_0": report['0']['f1-score'],
-        "precision_class_1": report['1']['precision'],
-        "recall_class_1": report['1']['recall'],
-        "f1_score_class_1": report['1']['f1-score']
-    })
-    
-    # Log all metrics to MLflow
-    mlflow.log_metrics(metrics)
+    # Log parameters to MLflow
+    mlflow.log_params(params)
 
-    # Calculate confusion matrix percentages for better interpretation
-    confusion_pct = confusion.astype('float') / confusion.sum(axis=1)[:, np.newaxis]
+    # Initialize and train the model
+    model = xgb.XGBClassifier(**params)
     
-    # Log confusion matrix values
-    mlflow.log_metric("true_negative", confusion[0, 0])
-    mlflow.log_metric("false_positive", confusion[0, 1])
-    mlflow.log_metric("false_negative", confusion[1, 0])
-    mlflow.log_metric("true_positive", confusion[1, 1])
-    
-    # Log confusion matrix percentages
-    mlflow.log_metric("true_negative_rate", confusion_pct[0, 0])
-    mlflow.log_metric("false_positive_rate", confusion_pct[0, 1])
-    mlflow.log_metric("false_negative_rate", confusion_pct[1, 0])
-    mlflow.log_metric("true_positive_rate", confusion_pct[1, 1])
+    # Convert data types for categorical columns if they exist
+    if isinstance(X_train, pd.DataFrame):
+        categorical_columns = X_train.select_dtypes(include=['object']).columns
+        for col in categorical_columns:
+            X_train[col] = X_train[col].astype('category')
 
-    # Print results
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred))
-    print("\nConfusion Matrix:")
-    print(confusion)
-    print("\nMetrics:")
-    for metric_name, value in metrics.items():
-        print(f"{metric_name}: {value:.4f}")
-    print("🔹 Evaluation complete")
+    # Create evaluation set
+    eval_set = [(X_train, y_train)]
+
+    # Fit the model
+    model.fit(
+        X_train, 
+        y_train,
+        eval_set=eval_set,
+        verbose=True
+    )
+
+    # Log training metrics
+    y_pred_proba = model.predict_proba(X_train)
+    train_loss = log_loss(y_train, y_pred_proba)
+    mlflow.log_metric("train_logloss", train_loss)
+
+    # Get evaluation results and log them
+    results = model.evals_result()
+    if results:
+        for metric in results['validation_0']:
+            for iteration, value in enumerate(results['validation_0'][metric]):
+                mlflow.log_metric(f"train_{metric}", value, step=iteration)
+
+    # Log the model to MLflow with signature
+    input_example = X_train.iloc[:5] if isinstance(X_train, pd.DataFrame) else X_train[:5]
+    mlflow.xgboost.log_model(
+        model, 
+        "xgboost_model",
+        input_example=input_example
+    )
+    
+    # Log feature importance
+    if isinstance(X_train, pd.DataFrame):
+        feature_importance = pd.DataFrame({
+            'feature': X_train.columns,
+            'importance': model.feature_importances_
+        }).sort_values('importance', ascending=False)
+        
+        # Log feature importance as a JSON file
+        feature_importance.to_json("feature_importance.json")
+        mlflow.log_artifact("feature_importance.json")
+        
+        # Log feature importance scores
+        for feature, importance in zip(feature_importance['feature'], feature_importance['importance']):
+            mlflow.log_metric(f"feature_importance_{feature}", importance)
+    
+    return model
