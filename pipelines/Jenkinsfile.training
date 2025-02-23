@@ -59,8 +59,8 @@ pipeline {
                             # Train model
                             docker exec model_trainer python -m main train_model
                             
-                            # Evaluate model
-                            docker exec model_trainer python -m main evaluate_model | tee model_output.txt
+                            # Evaluate model and capture all metrics
+                            docker exec model_trainer python -u -m main evaluate_model | tee model_output.txt
                             
                             # Save model
                             docker exec model_trainer python -m main save_model
@@ -69,21 +69,66 @@ pipeline {
                         // Get training timestamp
                         def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
                         
-                        // Extract accuracy from output file
-                        def accuracy = sh(
-                            script: "grep 'Model Accuracy:' model_output.txt | awk '{print \$3}'",
+                        // Extract metrics using Python for better parsing
+                        def metrics = sh(
+                            script: '''
+                                docker exec model_trainer python3 -c "
+import re
+import json
+
+def parse_metrics(file_path):
+    with open(file_path, 'r') as f:
+        content = f.read()
+    
+    # Extract all metrics
+    metrics = {}
+    
+    # Get overall accuracy
+    accuracy_match = re.search(r'accuracy\\s*:\\s*(\\d+\\.\\d+)', content)
+    if accuracy_match:
+        metrics['accuracy'] = float(accuracy_match.group(1))
+    
+    # Get class specific metrics
+    for class_label in ['0', '1']:
+        class_metrics = re.findall(
+            f'{class_label}\\s+(\\d+\\.\\d+)\\s+(\\d+\\.\\d+)\\s+(\\d+\\.\\d+)', 
+            content
+        )
+        if class_metrics:
+            precision, recall, f1 = map(float, class_metrics[0])
+            metrics[f'precision_{class_label}'] = precision
+            metrics[f'recall_{class_label}'] = recall
+            metrics[f'f1_{class_label}'] = f1
+    
+    # Get confusion matrix
+    matrix_lines = re.findall(r'Confusion Matrix:\\n\\s*(\\[.*?\\])', content, re.DOTALL)
+    if matrix_lines:
+        matrix_str = matrix_lines[0].replace('\\n', '').replace(' ', '')
+        metrics['confusion_matrix'] = matrix_str
+    
+    return metrics
+
+metrics = parse_metrics('model_output.txt')
+print(json.dumps(metrics))
+"
+                            ''',
                             returnStdout: true
                         ).trim()
                         
-                        // Verify we got the accuracy
-                        if (!accuracy) {
-                            error "Failed to extract model accuracy"
-                        }
+                        // Parse the JSON metrics
+                        def metricsMap = readJSON text: metrics
+                        
+                        // Create label arguments for all metrics
+                        def labelArgs = metricsMap.collect { k, v ->
+                            "-c 'LABEL model.${k}=${v}'"
+                        }.join(' ')
                         
                         // Save metrics for artifacts
                         sh """
                             mkdir -p metrics
-                            echo "accuracy=${accuracy}" > metrics/model_metrics.txt
+                            cat << EOF > metrics/model_metrics.json
+${metrics}
+EOF
                         """
                         
                         // Create and push model images with metrics
@@ -94,31 +139,34 @@ pipeline {
                                 # Re-login to ensure credentials are fresh
                                 echo "\$DOCKER_PASSWORD" | docker login -u "\$DOCKER_USERNAME" --password-stdin
                                 
-                                # Commit container with metrics
+                                # Commit container with all metrics
                                 docker commit \
                                     -c 'LABEL training.timestamp=${timestamp}' \
-                                    -c 'LABEL model.accuracy=${accuracy}' \
+                                    ${labelArgs} \
                                     model_trainer ${MODEL_IMAGE}:${TAG}
                                 
-                                # Create accuracy tag
-                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${accuracy}
+                                # Create tags for key metrics
+                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}
+                                docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:f1_weighted-${metricsMap.f1_1}
                                 docker tag ${MODEL_IMAGE}:${TAG} ${MODEL_IMAGE}:${timestamp}
                                 
                                 # Push all tags
                                 docker push ${MODEL_IMAGE}:${TAG}
-                                docker push ${MODEL_IMAGE}:accuracy-${accuracy}
+                                docker push ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}
+                                docker push ${MODEL_IMAGE}:f1_weighted-${metricsMap.f1_1}
                                 docker push ${MODEL_IMAGE}:${timestamp}
                                 
                                 echo "✅ Training complete. Images pushed:"
                                 echo "- ${MODEL_IMAGE}:${TAG}"
-                                echo "- ${MODEL_IMAGE}:accuracy-${accuracy}"
+                                echo "- ${MODEL_IMAGE}:accuracy-${metricsMap.accuracy}"
+                                echo "- ${MODEL_IMAGE}:f1_weighted-${metricsMap.f1_1}"
                                 echo "- ${MODEL_IMAGE}:${timestamp}"
                                 echo "\\nModel Metrics:"
-                                echo "accuracy=${accuracy}"
+                                echo '${metrics}' | python3 -m json.tool
                             """
                         }
                         
-                        archiveArtifacts artifacts: 'metrics/*.txt', fingerprint: true
+                        archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true
                         
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
