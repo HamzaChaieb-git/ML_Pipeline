@@ -1,4 +1,3 @@
-// pipelines/Jenkinsfile.code_quality
 pipeline {
     agent any
     
@@ -67,34 +66,37 @@ pipeline {
                             docker rm -f bandit_check || true
                         '''
                         
-                        // Create quality image with reports
+                        // Create quality image with reports as labels
                         sh '''#!/bin/bash
                             # Create container for reports
                             docker create --name quality_container ${BASE_IMAGE}:${TAG}
                             
-                            # Copy reports
+                            # Copy reports into the container
                             docker cp quality_reports/. quality_container:/workspace/quality_reports/
                             
                             # Add timestamp to build
                             BUILD_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
                             
-                            # Commit and push
+                            # Create label arguments for reports (simplified, assuming text content or hashes)
+                            FLAKE8_HASH=$(md5sum quality_reports/flake8_report.txt | cut -d' ' -f1 || echo "no_issues")
+                            BLACK_HASH=$(md5sum quality_reports/black_report.txt | cut -d' ' -f1 || echo "no_issues")
+                            BANDIT_HASH=$(md5sum quality_reports/bandit_report.txt | cut -d' ' -f1 || echo "no_issues")
+                            
+                            # Commit container with labels
                             docker commit \
                                 -c 'WORKDIR /workspace' \
                                 -c 'LABEL build.timestamp='${BUILD_TIMESTAMP}'' \
                                 -c 'LABEL build.pipeline=code-quality' \
+                                -c 'LABEL quality.flake8_hash='${FLAKE8_HASH}'' \
+                                -c 'LABEL quality.black_hash='${BLACK_HASH}'' \
+                                -c 'LABEL quality.bandit_hash='${BANDIT_HASH}'' \
                                 quality_container ${QUALITY_IMAGE}:${TAG}
                             
-                            # Tag with timestamp
-                            docker tag ${QUALITY_IMAGE}:${TAG} ${QUALITY_IMAGE}:${BUILD_TIMESTAMP}
-                            
-                            # Push images
+                            # Push only the latest tag
                             docker push ${QUALITY_IMAGE}:${TAG}
-                            docker push ${QUALITY_IMAGE}:${BUILD_TIMESTAMP}
                             
-                            echo "Quality reports saved to images:"
+                            echo "Quality reports saved to image:"
                             echo "- ${QUALITY_IMAGE}:${TAG}"
-                            echo "- ${QUALITY_IMAGE}:${BUILD_TIMESTAMP}"
                         '''
                     } catch (Exception e) {
                         echo "Error during quality checks: ${e.message}"
