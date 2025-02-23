@@ -1,21 +1,17 @@
-"""Module for training machine learning models using XGBoost and MLflow tracking."""
+"""Module for training machine learning models using XGBoost."""
 
 import xgboost as xgb
-import mlflow
-import mlflow.xgboost
 import pandas as pd
 import numpy as np
 from typing import Any
 
-
-def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassifier:
+def train_model(X_train: Any, y_train: Any) -> xgb.XGBClassifier:
     """
-    Train an XGBoost model and log it with MLflow for tracking.
+    Train an XGBoost model.
 
     Args:
         X_train: Training features (e.g., pandas DataFrame or numpy array).
         y_train: Training labels (e.g., pandas Series or numpy array).
-        run_id: Optional MLflow run ID to log to an existing run (if already active).
 
     Returns:
         xgb.XGBClassifier: Trained XGBoost model.
@@ -29,15 +25,11 @@ def train_model(X_train: Any, y_train: Any, run_id: str = None) -> xgb.XGBClassi
         len(y_train) == 0):
         raise ValueError("Training data or labels cannot be empty or invalid")
 
-    if run_id and mlflow.active_run():
-        return _train_model(X_train, y_train)
-    else:
-        with mlflow.start_run():
-            return _train_model(X_train, y_train)
-
+    model = _train_model(X_train, y_train)
+    return model
 
 def _train_model(X_train: Any, y_train: Any) -> xgb.XGBClassifier:
-    """Helper function to train the model and log parameters."""
+    """Helper function to train the model."""
     params = {
         "objective": "binary:logistic",
         "max_depth": 6,
@@ -47,11 +39,11 @@ def _train_model(X_train: Any, y_train: Any) -> xgb.XGBClassifier:
         "min_child_weight": 1,
         "subsample": 0.8,
         "colsample_bytree": 0.8,
+        "scale_pos_weight": len(y_train[y_train == 0]) / len(y_train[y_train == 1]),  # Handle class imbalance
     }
-    mlflow.log_params(params)
 
     model = xgb.XGBClassifier(**params)
     model.fit(X_train, y_train)
-
-    mlflow.xgboost.log_model(model, "xgboost_model")
+    
+    print("🔹 Training model... Done")
     return model
