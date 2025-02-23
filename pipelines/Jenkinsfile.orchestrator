@@ -3,11 +3,11 @@ pipeline {
     
     environment {
         EMAIL_TO = 'hitthetarget735@gmail.com'
+        BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         QUALITY_IMAGE = 'hamzachaieb01/ml-quality'
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
-        // Using localhost for MLflow during development
         MLFLOW_TRACKING_URI = 'http://localhost:5001'
     }
     
@@ -17,25 +17,41 @@ pipeline {
     }
     
     stages {
+        stage('Create Network') {
+            steps {
+                script {
+                    env.FAILED_STAGE_NAME = 'Create Network'
+                    sh """
+                        # Create Docker network if it doesn't exist
+                        docker network create mlflow_net || true
+                    """
+                }
+            }
+        }
+
         stage('Setup MLflow') {
             steps {
                 script {
                     env.FAILED_STAGE_NAME = 'Setup MLflow'
-                    // Create MLflow container with SQLite backend
                     sh """
+                        # Pull the base image first
+                        docker pull ${BASE_IMAGE}:latest
+                        
+                        # Start MLflow server using the base image
                         docker run -d --name mlflow_server \
                             -p 5001:5001 \
                             -v \${WORKSPACE}/mlflow:/mlflow \
-                            python:3.9 bash -c "
-                                pip install mlflow==2.8.1 && 
-                                mlflow server \
-                                    --host 0.0.0.0 \
-                                    --port 5001 \
-                                    --backend-store-uri sqlite:///mlflow/mlflow.db \
-                                    --default-artifact-root /mlflow/artifacts"
+                            --network mlflow_net \
+                            ${BASE_IMAGE}:latest \
+                            mlflow server \
+                                --host 0.0.0.0 \
+                                --port 5001 \
+                                --backend-store-uri sqlite:///mlflow/mlflow.db \
+                                --default-artifact-root /mlflow/artifacts
+                        
+                        # Wait for MLflow server to start
+                        sleep 10
                     """
-                    // Wait for MLflow server to start
-                    sh 'sleep 10'
                 }
             }
         }
@@ -154,13 +170,10 @@ pipeline {
                     script {
                         env.FAILED_STAGE_NAME = 'Log to MLflow'
                         sh """
-                            # Create a network for MLflow communication
-                            docker network create mlflow_net || true
-
                             # Run data container with network access
                             docker run -d --name data_container \
                                 --network mlflow_net \
-                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                -e MLFLOW_TRACKING_URI=http://mlflow_server:5001 \
                                 ${DATA_IMAGE}:final
 
                             # Execute data processing with MLflow logging
@@ -169,7 +182,7 @@ pipeline {
                             # Run model container
                             docker run -d --name model_container \
                                 --network mlflow_net \
-                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                -e MLFLOW_TRACKING_URI=http://mlflow_server:5001 \
                                 ${MODEL_IMAGE}:final
 
                             # Execute model pipeline steps
@@ -177,9 +190,8 @@ pipeline {
                             docker exec model_container python -u -m main evaluate_model
                             docker exec model_container python -u -m main save_model
 
-                            # Cleanup
+                            # Cleanup containers but keep network for MLflow
                             docker rm -f data_container model_container
-                            docker network rm mlflow_net
                         """
                     }
                 }
@@ -226,6 +238,7 @@ pipeline {
                     docker rmi ${QUALITY_IMAGE}:final || true
                     docker rmi ${DATA_IMAGE}:final || true
                     docker rmi ${MODEL_IMAGE}:final || true
+                    docker network rm mlflow_net || true
                     docker logout || true
                     docker system prune -f || true
                 """
