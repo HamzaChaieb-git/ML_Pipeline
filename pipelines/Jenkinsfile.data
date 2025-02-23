@@ -5,7 +5,6 @@ pipeline {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         TAG = 'latest'
-        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
     }
     
     stages {
@@ -27,20 +26,12 @@ pipeline {
                             
                             # Create data processor container and ensure /app directory exists
                             docker run --name data_processor \
-                                -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                                --network ml_network \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
                             # Create /app directory if it doesn’t exist and ensure proper permissions
                             docker exec data_processor mkdir -p /app
                             docker exec data_processor chmod 777 /app
-                            
-                            # Test MLflow connectivity before processing (optional, if prepare_data logs to MLflow)
-                            docker exec data_processor python -c "import mlflow; client = mlflow.MlflowClient('${MLFLOW_TRACKING_URI}'); print(client.list_experiments())" > /app/mlflow_test.txt 2>&1
-                            if [ ! -s /app/mlflow_test.txt ]; then
-                                echo "WARNING: MLflow server at ${MLFLOW_TRACKING_URI} is unreachable, but continuing..."
-                            fi
                             
                             # Process data and capture output
                             docker exec data_processor sh -c "python -u -m main prepare_data > /app/data_output.txt 2>&1"
