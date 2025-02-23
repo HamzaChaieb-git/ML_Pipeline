@@ -1,10 +1,6 @@
 pipeline {
     agent any
     
-    parameters {
-        string(name: 'VERSION', defaultValue: 'latest', description: 'Version tag for the image')
-    }
-    
     environment {
         BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
         DATA_IMAGE = 'hamzachaieb01/ml-data'
@@ -32,7 +28,7 @@ pipeline {
             steps {
                 script {
                     def baseImage = "${env.BASE_IMAGE}:${env.TAG}"
-                    def dataImageLogs = "${env.DATA_IMAGE}:${env.VERSION}-logs"
+                    def dataImageLogs = "${env.DATA_IMAGE}:${env.TAG}-logs"
                     try {
                         sh """
                             docker run -d --name data_processing "${baseImage}" tail -f /dev/null
@@ -56,10 +52,10 @@ pipeline {
             sh 'docker logout || true'
         }
         success {
-            echo "Data pipeline complete. Processed data image: ${DATA_IMAGE}:${VERSION}-logs"
+            echo "Data pipeline complete. Processed data image: ${DATA_IMAGE}:${TAG}-logs"
         }
         unstable {
-            echo "Data processing completed with issues, but pipeline finished. Image: ${DATA_IMAGE}:${VERSION}-logs"
+            echo "Data processing completed with issues, but pipeline finished. Image: ${DATA_IMAGE}:${TAG}-logs"
         }
     }
 }
