@@ -6,7 +6,7 @@ pipeline {
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
-        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'  # Ensure this is reachable
         WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
     }
     
@@ -49,6 +49,7 @@ pipeline {
                             docker run -d --name model_trainer \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
                                 --volumes-from data_container \
+                                --network ml_network  # Ensure network for MLflow access \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
@@ -56,17 +57,23 @@ pipeline {
                             docker exec model_trainer mkdir -p /app
                             docker exec model_trainer chmod 777 /app
                             
+                            # Test MLflow connectivity before training
+                            docker exec model_trainer python -c "import mlflow; client = mlflow.MlflowClient('${MLFLOW_TRACKING_URI}'); print(client.list_experiments())" > /app/mlflow_test.txt 2>&1
+                            if [ ! -s /app/mlflow_test.txt ]; then
+                                echo "ERROR: MLflow server at ${MLFLOW_TRACKING_URI} is unreachable"
+                                exit 1
+                            fi
+                            
                             # Train model and capture output, with verbose logging
                             docker exec model_trainer sh -c "python -u -m main train_model > /app/train_output.txt 2>&1"
                             
                             # Wait longer to ensure output is written
-                            sleep 10  # Increased from 5 to ensure file writing completes
+                            sleep 10
                             
                             # Check if train_output.txt exists and has content
                             if [ ! -f /app/train_output.txt ]; then
                                 echo "ERROR: train_output.txt not found in /app/. Checking container logs..."
-                                docker logs model_trainer > /app/train_logs.txt 2>&1
-                                echo "Container logs saved to /app/train_logs.txt"
+                                docker logs model_trainer > /app/train_logs.txt 2>&1 || echo "Failed to save logs to /app/train_logs.txt"
                                 exit 1
                             fi
                             
@@ -82,7 +89,7 @@ pipeline {
                                 RUN_ID=\$(docker exec model_trainer python3 -c '
 import mlflow
 client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
-runs = client.search_runs(experiment_ids=["0"])  # Use search_runs
+runs = client.search_runs(experiment_ids=["0"])
 print(runs[0].info.run_id if runs else "")
 ' || echo '')
                                 if [ -z "\$RUN_ID" ]; then
@@ -97,9 +104,13 @@ print(runs[0].info.run_id if runs else "")
                             
                             # Save model
                             docker exec model_trainer python -m main save_model
+                            
+                            # Save logs and metrics to image
+                            docker commit model_trainer ${MODEL_IMAGE}:${TAG}-logs
+                            docker push ${MODEL_IMAGE}:${TAG}-logs
                         """
 
-                        // Fetch metrics from MLflow server using the run ID
+                        // Fetch metrics from MLflow for verification
                         def runId = sh(
                             script: "docker exec model_trainer grep 'MLflow run ID:' /app/train_output.txt | awk '{print \$NF}' || echo ''",
                             returnStdout: true
@@ -112,7 +123,7 @@ print(runs[0].info.run_id if runs else "")
                                     docker exec model_trainer python3 -c '
 import mlflow
 client = mlflow.MlflowClient("${MLFLOW_TRACKING_URI}")
-runs = client.search_runs(experiment_ids=["0"])  # Use search_runs
+runs = client.search_runs(experiment_ids=["0"])
 print(runs[0].info.run_id if runs else "")
 '
                                 """,
@@ -139,36 +150,7 @@ print(json.dumps(metrics))
                             returnStdout: true
                         ).trim()
 
-                        def timestamp = sh(script: 'date +%Y%m%d_%H%M%S', returnStdout: true).trim()
-                        def metricsMap = new groovy.json.JsonSlurper().parseText(metrics) as Map
-                        metricsMap = metricsMap.collectEntries { k, v -> [k, v instanceof groovy.json.internal.LazyMap ? v.toMap() : v] }
-                        
-                        def labelArgs = metricsMap.collect { k, v ->
-                            "-c 'LABEL model.${k}=${v}'"
-                        }.join(' ')
-
-                        sh """
-                            mkdir -p metrics
-                            echo '${metrics}' > metrics/model_metrics.json
-                        """
-
-                        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
-                                       usernameVariable: 'DOCKER_USERNAME', 
-                                       passwordVariable: 'DOCKER_PASSWORD')]) {
-                            sh """
-                                echo "\$DOCKER_PASSWORD" | docker login -u "\$DOCKER_USERNAME" --password-stdin
-                                docker commit \
-                                    -c 'LABEL training.timestamp=${timestamp}' \
-                                    ${labelArgs} \
-                                    model_trainer ${MODEL_IMAGE}:${TAG}
-                                docker push ${MODEL_IMAGE}:${TAG}
-                                echo "✅ Training complete. Image pushed: ${MODEL_IMAGE}:${TAG}"
-                                echo "\\nModel Metrics:"
-                                echo '${metrics}' | python3 -m json.tool
-                            """
-                        }
-                        
-                        archiveArtifacts artifacts: 'metrics/*.json', fingerprint: true
+                        echo "Model Metrics: ${metrics}"
                         
                     } catch (Exception e) {
                         currentBuild.result = 'FAILURE'
