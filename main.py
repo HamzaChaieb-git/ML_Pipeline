@@ -22,7 +22,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, BatchSpanProcessor
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from mlflow.tracking.fluent import MlflowSpanExporter
+from mlflow.opentelemetry import MlflowSpanExporter  # Corrected import path
 
 # Initialize OpenTelemetry with both Console and MLflow exporters
 trace.set_tracer_provider(TracerProvider())
