@@ -3,6 +3,7 @@ import pandas as pd
 import joblib
 import mlflow
 import os
+import requests
 from datetime import datetime
 import json
 
@@ -32,7 +33,7 @@ def load_latest_model():
         st.error(f"Failed to load model: {str(e)}")
         return None
 
-# Load model
+# Load model for local predictions (optional, for fallback)
 model = load_latest_model()
 
 if model:
@@ -74,8 +75,8 @@ if model:
         
         submit_button = st.form_submit_button(label="Predict")
 
-    if submit_button and model:
-        input_data = pd.DataFrame({
+    if submit_button:
+        input_data = {
             "Total day minutes": [total_day_minutes],
             "Customer service calls": [customer_service_calls],
             "International plan": [international_plan],
@@ -84,11 +85,24 @@ if model:
             "Total eve minutes": [total_eve_minutes],
             "Number vmail messages": [number_vmail_messages],
             "Voice mail plan": [voice_mail_plan]
-        })
+        }
 
-        prediction = model.predict_proba(input_data)[:, 1][0]
-        st.write(f"Churn Probability: {prediction:.4f}")
-        st.write("Note: A higher probability indicates a higher likelihood of churn.")
+        try:
+            # Try to make a prediction via FastAPI
+            response = requests.post("http://localhost:8000/predict", json=input_data, timeout=10)
+            response.raise_for_status()
+            prediction = response.json()["churn_probabilities"][0]
+            st.write(f"Churn Probability: {prediction:.4f}")
+            st.write("Note: A higher probability indicates a higher likelihood of churn.")
+        except requests.exceptions.RequestException as e:
+            st.error(f"Error making prediction: {str(e)}. Please check if the API server is running and all inputs are valid.")
+            
+            # Fallback: Use local model if FastAPI fails
+            if model:
+                input_df = pd.DataFrame(input_data)
+                prediction = model.predict_proba(input_df)[:, 1][0]
+                st.write(f"Churn Probability (Local Model Fallback): {prediction:.4f}")
+                st.write("Note: A higher probability indicates a higher likelihood of churn.")
 
     # Visualize feature importance (from artifacts)
     def load_feature_importance():
@@ -107,6 +121,6 @@ if model:
         st.header("Feature Importance")
         st.bar_chart(feature_importance.set_index('feature'))
 
-# Run the Streamlit app
+# Run the Streamlit app with explicit host and port
 if __name__ == "__main__":
-    st.run()
+    st.run(server_address="0.0.0.0", server_port=8501)
