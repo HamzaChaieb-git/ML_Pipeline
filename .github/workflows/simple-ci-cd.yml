@@ -22,7 +22,6 @@ jobs:
 
       - name: Verify FastAPI image
         run: |
-          # Test running the FastAPI container standalone with verbose output
           docker run --name test-fastapi -d ml_pipeline-fastapi
           sleep 5
           docker logs test-fastapi
@@ -33,10 +32,9 @@ jobs:
           docker compose up -d
           echo "Waiting for services to start (30 seconds)..."
           sleep 30
-          # Display container status for debugging
           echo "Container status:"
           docker compose ps
-          
+      
       - name: Debug container logs
         run: |
           echo "=== FastAPI container logs ==="
@@ -46,20 +44,17 @@ jobs:
       
       - name: Test FastAPI
         run: |
-          # Retry the health check a few times
           for i in {1..5}; do
             echo "Attempt $i: Checking FastAPI health..."
             if curl -s http://localhost:8000/health | grep -q "healthy"; then
               echo "FastAPI is healthy!"
               break
             fi
-            
             if [ $i -eq 5 ]; then
               echo "FastAPI health check failed after 5 attempts"
               docker compose logs fastapi
               exit 1
             fi
-            
             echo "Waiting 5 seconds before next attempt..."
             sleep 5
           done
@@ -84,11 +79,22 @@ jobs:
             exit 1
           fi
       
+      - name: Check Pipeline container status
+        run: |
+          echo "Checking pipeline container status..."
+          if docker compose ps | grep -q "ml_pipeline-pipeline-1.*Up"; then
+            echo "Pipeline container is running"
+          else
+            echo "Pipeline container is not running, showing logs:"
+            docker compose logs pipeline
+            exit 1
+          fi
+      
       - name: Run ML Pipeline
         run: |
-          docker exec ml_pipeline-pipeline-1 python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all
+          docker compose run --rm pipeline python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all
       
       - name: Stop Docker Compose
-        if: always()  # Run this step even if previous steps fail
+        if: always()
         run: |
           docker compose down
