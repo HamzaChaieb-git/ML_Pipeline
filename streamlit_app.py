@@ -1,225 +1,294 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
-import os
-from pathlib import Path
-from catboost import CatBoostClassifier
-from sklearn.ensemble import StackingClassifier, GradientBoostingClassifier, RandomForestClassifier
-from xgboost import XGBClassifier
 import requests
+import os
 import plotly.graph_objects as go
 from datetime import datetime
 
-# Try importing sklearn with error handling
-try:
-    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-except ImportError:
-    st.error("Please install scikit-learn: pip install scikit-learn")
-    st.stop()
+# Set page configuration as the first Streamlit command for a clean, centered layout
+st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="collapsed")
 
-MODELS_DIR = "models"
+# Custom CSS for a professional, modern light-themed design with +/- buttons
+st.markdown("""
+    <style>
+    /* Light background with subtle gradient */
+    body, .stApp {
+        background: linear-gradient(135deg, #f0f2f6 0%, #e0e5ec 100%) !important;
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        overflow: auto;
+    }
+    .main {
+        padding: 40px;
+        width: 100%;
+        max-width: 800px;
+        margin: 0 auto;
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
 
-@st.cache_data
-def load_sample_data():
-    """Load sample data for testing"""
+    /* Header styling with blue text */
+    .stHeader {
+        color: #4a90e2;
+        font-size: 48px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 20px;
+        font-family: 'Arial', sans-serif;
+    }
+
+    /* Subheader styling */
+    .stSubheader {
+        color: #333;
+        font-size: 24px;
+        margin-top: 20px;
+        text-align: center;
+        font-family: 'Arial', sans-serif;
+    }
+
+    /* Text styling */
+    .stText {
+        color: #666;
+        font-size: 16px;
+        text-align: center;
+        font-family: 'Arial', sans-serif;
+        line-height: 1.6;
+    }
+
+    /* Input fields and select boxes with black theme and +/- buttons */
+    .stNumberInput, .stSelectbox {
+        background-color: #1a1a1a;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 12px;
+        color: #ffffff;
+        margin: 10px 0;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        font-family: 'Arial', sans-serif;
+        font-size: 16px;
+    }
+    .stNumberInput > div > input, .stSelectbox > div > select {
+        background-color: transparent !important;
+        color: #ffffff !important;
+        font-size: 16px;
+        font-family: 'Arial', sans-serif;
+        text-align: center;
+    }
+    .stNumberInput > div > input:focus, .stSelectbox > div > select:focus {
+        outline: none;
+        border-color: #4a90e2;
+        box-shadow: 0 0 8px #4a90e2;
+        transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    /* Style for +/- buttons to match your screenshot */
+    .stNumberInput > div > div > button {
+        background-color: #4a90e2;
+        color: #ffffff;
+        border: none;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        font-size: 16px;
+        margin: 0 5px;
+        box-shadow: 0 2px 4px rgba(74, 144, 226, 0.2);
+        transition: background-color 0.3s, transform 0.2s;
+    }
+    .stNumberInput > div > div > button:hover {
+        background-color: #357ABD;
+        transform: scale(1.1);
+    }
+
+    /* Selectbox dropdown styling */
+    .stSelectbox > div > select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        background: url('data:image/svg+xml;utf8,<svg fill="%23333" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>') no-repeat right 10px center;
+        padding-right: 40px;
+        color: #ffffff;
+    }
+
+    /* Button styling with blue theme */
+    .stButton>button {
+        background-color: #4a90e2;
+        color: white;
+        border-radius: 8px;
+        padding: 14px 30px;
+        font-size: 18px;
+        border: none;
+        margin-top: 20px;
+        width: 100%;
+        box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+        font-family: 'Arial', sans-serif;
+        transition: background-color 0.3s, box-shadow 0.3s, transform 0.2s;
+    }
+    .stButton>button:hover {
+        background-color: #357ABD;
+        box-shadow: 0 6px 15px rgba(74, 144, 226, 0.5);
+        transform: scale(1.02);
+    }
+
+    /* Success message styling */
+    .stSuccess {
+        background-color: #dff0d8;
+        color: #2d6a4f;
+        padding: 12px;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 20px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        font-family: 'Arial', sans-serif;
+        font-size: 18px;
+    }
+
+    /* Error message styling */
+    .stError {
+        background-color: #f2dede;
+        color: #a4161a;
+        padding: 12px;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 20px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        font-family: 'Arial', sans-serif;
+        font-size: 18px;
+    }
+
+    /* Chart styling for gauge */
+    .stPlotlyChart {
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        margin-top: 30px;
+        margin-bottom: 20px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Title and branding
+st.markdown('<div class="stHeader">Churn Prediction Dashboard</div>', unsafe_allow_html=True)
+st.markdown('<div class="stText">Predict customer churn with an interactive, user-friendly interface.</div>', unsafe_allow_html=True)
+
+# Load model from artifacts (for fallback, if FastAPI fails)
+def load_latest_model():
+    models_dir = os.path.join("artifacts", "models")
+    if not os.path.exists(models_dir):
+        st.error("No models found in artifacts/models directory.")
+        return None
+    
+    model_files = [f for f in os.listdir(models_dir) if f.startswith("model_v") and f.endswith(".joblib")]
+    if not model_files:
+        st.error("No model files found in artifacts/models.")
+        return None
+    
+    latest_model = max(model_files, key=lambda x: x.split("v")[1].split(".joblib")[0])
+    model_path = os.path.join(models_dir, latest_model)
     try:
-        df = pd.read_csv('data/cleaned_test (6).csv')
-        return df
+        model = joblib.load(model_path)
+        return model
     except Exception as e:
-        st.error(f"Error loading sample data: {str(e)}")
+        st.error(f"Failed to load model: {str(e)}")
         return None
 
-@st.cache_resource
-def load_models():
-    """Load all trained models from the models directory"""
-    models = {}
-    try:
-        # Try to load each model
-        model_files = os.listdir(MODELS_DIR)
-        for model_file in model_files:
-            if model_file.endswith('_model.joblib'):
-                model_name = model_file.replace('_model.joblib', '')
-                try:
-                    model_path = os.path.join(MODELS_DIR, model_file)
-                    models[model_name] = joblib.load(model_path)
-                except Exception as e:
-                    st.error(f"Error loading {model_name}: {str(e)}")
-        
-        return models if models else None
-        
-    except Exception as e:
-        st.error(f"General error: {str(e)}")
-        return None
+# Load model for local predictions (optional, for fallback)
+model = load_latest_model()
 
-def create_feature_input(feature, feature_type, sample_value=None):
-    """Create appropriate input widget based on feature type"""
-    if feature in ['International plan', 'Voice mail plan']:
-        default_value = 'Yes' if sample_value == 1 else 'No' if sample_value == 0 else 'No'
-        return st.selectbox(feature, ['No', 'Yes'], index=0 if default_value == 'No' else 1)
-    else:
-        default_value = float(sample_value) if sample_value is not None else 0.0
-        return st.number_input(
-            feature,
-            value=default_value,
-            format="%.2f"  # Simplified to two decimal places for consistency with screenshot
-        )
+# Input form for predictions with professional styling
+st.markdown('<div class="stSubheader">Enter Customer Data</div>', unsafe_allow_html=True)
+with st.form(key="churn_form", clear_on_submit=False):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        total_day_minutes = st.number_input("Total Day Minutes", min_value=0.0, value=120.50, format="%.2f", key="day_minutes")
+        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, value=1, key="service_calls")
+        international_plan = st.selectbox("International Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", key="intl_plan")
+    
+    with col2:
+        total_intl_minutes = st.number_input("Total International Minutes", min_value=0.0, value=10.20, format="%.2f", key="intl_minutes")
+        total_intl_calls = st.number_input("Total International Calls", min_value=0, value=5, key="intl_calls")
+        total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, value=200.00, format="%.2f", key="eve_minutes")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, value=1, key="vmail_messages")
+        voice_mail_plan = st.selectbox("Voice Mail Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", key="voice_plan")
+    
+    submit_button = st.form_submit_button(label="Predict Churn")
 
-def process_input_data(input_data):
-    """Process input data and convert to correct types"""
-    processed_data = input_data.copy()
-    
-    # Convert Yes/No to 1/0 for categorical variables
-    for key in ['International plan', 'Voice mail plan']:
-        if key in processed_data:
-            processed_data[key] = 1 if processed_data[key] == 'Yes' else 0
-            processed_data[key] = np.float32(processed_data[key])
-    
-    # Convert all other values to float32
-    for key, value in processed_data.items():
-        if key not in ['International plan', 'Voice mail plan']:
-            processed_data[key] = np.float32(value)
-    
-    return processed_data
+    if submit_button:
+        input_data = {
+            "Total day minutes": [total_day_minutes],
+            "Customer service calls": [customer_service_calls],
+            "International plan": [international_plan],
+            "Total intl minutes": [total_intl_minutes],
+            "Total intl calls": [total_intl_calls],
+            "Total eve minutes": [total_eve_minutes],
+            "Number vmail messages": [number_vmail_messages],
+            "Voice mail plan": [voice_mail_plan]
+        }
 
-def main():
-    st.set_page_config(
-        page_title="Telecom Customer Churn Prediction",
-        page_icon="📱",
-        layout="centered"
-    )
-    
-    st.markdown('<div style="text-align: center;"><h1 style="color: #4a90e2; font-family: Arial, sans-serif; font-size: 48px; margin-bottom: 10px;">Churn Prediction Dashboard</h1></div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align: center; color: #666; font-family: Arial, sans-serif; font-size: 16px; margin-bottom: 20px;">Predict customer churn with an interactive, user-friendly interface.</div>', unsafe_allow_html=True)
-    
-    try:
-        # Load models and sample data
-        models = load_models()
-        sample_data = load_sample_data()
-        
-        if not models:
-            st.error("Failed to load necessary model files.")
-            return
-        
-        # Sidebar - Model selection and sample data
-        with st.sidebar:
-            st.markdown('<h3 style="color: #333; font-family: Arial, sans-serif; font-size: 24px;">🔧 Model Settings</h3>', unsafe_allow_html=True)
-            selected_model = st.selectbox(
-                'Choose a model',
-                options=list(models.keys()),
-                help='Select the machine learning model to use for prediction'
-            )
+        try:
+            # Try to make a prediction via FastAPI
+            response = requests.post("http://localhost:8000/predict", json=input_data, timeout=10)
+            response.raise_for_status()
+            prediction = response.json()["churn_probabilities"][0]
+            st.markdown(f'<div class="stSuccess">Churn Probability: {prediction:.4f}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="stText">Note: A higher probability indicates a higher likelihood of churn.</div>', unsafe_allow_html=True)
             
-            st.markdown('<h3 style="color: #333; font-family: Arial, sans-serif; font-size: 24px;">📊 Sample Data Selection</h3>', unsafe_allow_html=True)
-            if sample_data is not None:
-                use_sample = st.checkbox('Use sample data for testing')
-                if use_sample:
-                    # Show sample data in a table with pagination
-                    st.dataframe(sample_data, height=200)
-                    selected_index = st.number_input(
-                        'Select row number to test',
-                        min_value=0,
-                        max_value=len(sample_data)-1,
-                        value=0
-                    )
-                    selected_sample = sample_data.iloc[selected_index]
-                    
-                    # Show actual churn value for selected sample
-                    actual_churn = selected_sample['Churn']
-                    st.markdown(f'<p style="color: #666; font-family: Arial, sans-serif; font-size: 16px;">Actual Churn Value: {"Yes" if actual_churn else "No"}</p>', unsafe_allow_html=True)
-                else:
-                    selected_sample = None
-            else:
-                selected_sample = None
-                st.error("Sample data not available")
+            # KPI-style gauge chart matching your screenshot
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=prediction * 100,
+                title={'text': "Churn Probability (%)", 'font': {'size': 16, 'color': '#333'}},
+                gauge={'axis': {'range': [0, 100], 'tickcolor': '#666', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#666'}},
+                       'bar': {'color': "#4682b4"},  # Blue bar
+                       'steps': [
+                           {'range': [0, 50], 'color': "#e0e5ec"},
+                           {'range': [50, 100], 'color': "#d0d6e0"}],
+                       'threshold': {'line': {'color': "#ff4040", 'width': 4}, 'thickness': 0.75, 'value': 80}},
+                number={'valueformat': ".1f", 'font': {'size': 36, 'color': '#333'}}
+            ))
+            fig.update_layout(
+                paper_bgcolor="#ffffff",
+                plot_bgcolor="#ffffff",
+                height=300,
+                width=500,
+                margin=dict(l=20, r=20, t=50, b=20)
+            )
+            st.plotly_chart(fig, use_container_width=True)
         
-        # Main panel - Input features
-        st.markdown('<div style="text-align: center;"><h2 style="color: #333; font-family: Arial, sans-serif; font-size: 24px;">📝 Enter Customer Information</h2></div>', unsafe_allow_html=True)
-        
-        # Create columns for better layout
-        col1, col2 = st.columns(2)
-        
-        # Get features from sample data
-        features = sample_data.columns.drop('Churn') if sample_data is not None else []
-        
-        # Create input fields
-        input_data = {}
-        for i, feature in enumerate(features):
-            # Alternate between columns
-            with col1 if i % 2 == 0 else col2:
-                sample_value = selected_sample[feature] if selected_sample is not None else None
-                input_data[feature] = create_feature_input(
-                    feature,
-                    None,  # feature type not needed with scaled data
-                    sample_value
-                )
-        
-        # Make prediction
-        if st.button('🔮 Predict', use_container_width=True):
-            try:
-                with st.spinner('Analyzing customer data...'):
-                    # Process the input data
-                    processed_data = process_input_data(input_data)
-                    
-                    # Convert to DataFrame
-                    input_df = pd.DataFrame([processed_data])
-                    
-                    # Get prediction
-                    model = models[selected_model]
-                    prediction = model.predict(input_df)
-                    probability = model.predict_proba(input_df)
-                    
-                    # Show results
-                    st.markdown('<div style="text-align: center;"><h2 style="color: #333; font-family: Arial, sans-serif; font-size: 24px;">🎯 Prediction Results</h2></div>', unsafe_allow_html=True)
-                    
-                    # Create columns for the results
-                    result_col1, result_col2 = st.columns(2)
-                    
-                    with result_col1:
-                        if prediction[0]:
-                            st.markdown('<div style="background-color: #f2dede; color: #a4161a; padding: 12px; border-radius: 8px; text-align: center; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); font-family: Arial, sans-serif; font-size: 18px;">⚠️ Customer is likely to churn!</div>', unsafe_allow_html=True)
-                            st.markdown(f'<p style="color: #666; font-family: Arial, sans-serif; font-size: 16px;">Churn probability: {probability[0][1]:.1%}</p>', unsafe_allow_html=True)
-                        else:
-                            st.markdown('<div style="background-color: #dff0d8; color: #2d6a4f; padding: 12px; border-radius: 8px; text-align: center; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); font-family: Arial, sans-serif; font-size: 18px;">✅ Customer is likely to stay!</div>', unsafe_allow_html=True)
-                            st.markdown(f'<p style="color: #666; font-family: Arial, sans-serif; font-size: 16px;">Retention probability: {probability[0][0]:.1%}</p>', unsafe_allow_html=True)
-                    
-                    with result_col2:
-                        # Show confidence and gauge
-                        if prediction[0]:
-                            churn_prob = probability[0][1] * 100
-                        else:
-                            churn_prob = probability[0][0] * 100
-                        
-                        st.markdown(f'<p style="color: #666; font-family: Arial, sans-serif; font-size: 16px;">Confidence: {churn_prob:.1f}%</p>', unsafe_allow_html=True)
-                        st.progress(churn_prob/100)
-                        
-                        # KPI-style gauge chart matching your screenshot
-                        fig = go.Figure(go.Indicator(
-                            mode="gauge+number",
-                            value=churn_prob if prediction[0] else 100 - churn_prob,
-                            title={'text': "Churn Probability (%)" if prediction[0] else "Retention Probability (%)", 'font': {'size': 16, 'color': '#333'}},
-                            gauge={'axis': {'range': [0, 100], 'tickcolor': '#666', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#666'}},
-                                'bar': {'color': "#4682b4"},  # Blue bar
-                                'steps': [
-                                    {'range': [0, 50], 'color': "#e0e5ec"},
-                                    {'range': [50, 100], 'color': "#d0d6e0"}],
-                                'threshold': {'line': {'color': "#ff4040", 'width': 4}, 'thickness': 0.75, 'value': 80}},
-                            number={'valueformat': ".1f", 'font': {'size': 36, 'color': '#333'}}
-                        ))
-                        fig.update_layout(
-                            paper_bgcolor="#ffffff",
-                            plot_bgcolor="#ffffff",
-                            height=300,
-                            width=500,
-                            margin=dict(l=20, r=20, t=50, b=20)
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-            except Exception as e:
-                st.error(f"Error making prediction: {str(e)}")
+        except requests.exceptions.RequestException as e:
+            st.markdown(f'<div class="stError">Error making prediction: {str(e)}. Please check if the API server is running and all inputs are valid.</div>', unsafe_allow_html=True)
+            
+            # Fallback: Use local model if FastAPI fails
+            if model:
+                input_df = pd.DataFrame(input_data)
+                prediction = model.predict_proba(input_df)[:, 1][0]
+                st.markdown(f'<div class="stSuccess">Churn Probability (Local Model Fallback): {prediction:.4f}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="stText">Note: A higher probability indicates a higher likelihood of churn.</div>', unsafe_allow_html=True)
                 
-    except Exception as e:
-        st.error(f"Application error: {str(e)}")
-
-if __name__ == '__main__':
-    main()
+                # KPI-style gauge chart for fallback
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=prediction * 100,
+                    title={'text': "Churn Probability (%)", 'font': {'size': 16, 'color': '#333'}},
+                    gauge={'axis': {'range': [0, 100], 'tickcolor': '#666', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#666'}},
+                           'bar': {'color': "#4682b4"},
+                           'steps': [
+                               {'range': [0, 50], 'color': "#e0e5ec"},
+                               {'range': [50, 100], 'color': "#d0d6e0"}],
+                           'threshold': {'line': {'color': "#ff4040", 'width': 4}, 'thickness': 0.75, 'value': 80}},
+                    number={'valueformat': ".1f", 'font': {'size': 36, 'color': '#333'}}
+                ))
+                fig.update_layout(
+                    paper_bgcolor="#ffffff",
+                    plot_bgcolor="#ffffff",
+                    height=300,
+                    width=500,
+                    margin=dict(l=20, r=20, t=50, b=20)
+                )
+                st.plotly_chart(fig, use_container_width=True)
