@@ -1,4 +1,4 @@
-"""Enhanced main module for running the ML pipeline with MLflow native tracing."""
+"""Enhanced main module for running the ML pipeline with MLflow native tracing using @mlflow.trace."""
 
 import argparse
 import os
@@ -6,7 +6,7 @@ import mlflow
 import mlflow.xgboost
 import mlflow.sklearn
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Dict, Any
 import sys
 import json
 
@@ -52,6 +52,32 @@ def setup_enhanced_mlflow():
     mlflow.set_experiment(experiment_name)
     return experiment_id
 
+@mlflow.trace
+def prepare_data_traced(train_file: str, test_file: str) -> Tuple:
+    """Traced data preparation step."""
+    X_train, X_test, y_train, y_test = process_data(train_file, test_file)
+    return X_train, X_test, y_train, y_test
+
+@mlflow.trace(attributes={"step": "model_training"})
+def train_model_traced(X_train: Any, y_train: Any, model_version: str) -> Any:
+    """Traced model training step."""
+    return train_xgb_model(X_train, y_train, model_version=model_version)
+
+@mlflow.trace(attributes={"step": "model_evaluation"})
+def evaluate_model_traced(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
+    """Traced model evaluation step."""
+    return evaluate_xgb_model(model, X_test, y_test)
+
+@mlflow.trace(attributes={"step": "model_logging"})
+def log_model_traced(model: Any, model_version: str) -> None:
+    """Traced model logging step."""
+    mlflow.xgboost.log_model(
+        model,
+        "model",
+        registered_model_name=f"churn_model_v{model_version}"
+    )
+    save_xgb_model(model, f"model_v{model_version}.joblib")
+
 def log_system_info(run):
     """Log system and environment information within an MLflow run."""
     import platform
@@ -80,7 +106,7 @@ def log_system_info(run):
     print("✓ System information logged")
 
 def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
-    """Execute the enhanced ML pipeline with comprehensive MLflow tracking and native tracing."""
+    """Execute the enhanced ML pipeline with comprehensive MLflow tracking and tracing."""
     print("🚀 Launching enhanced ML pipeline...")
 
     experiment_id = setup_enhanced_mlflow()
@@ -89,10 +115,6 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
     with mlflow.start_run(run_name=f"Pipeline_v{model_version}") as run:
         run_id = run.info.run_id
         print(f"MLflow Run ID: {run_id}")
-
-        # Log run-level metadata for tracing
-        mlflow.set_tag("step", "pipeline_execution")
-        mlflow.log_param("run_id", run_id)
 
         # Log system information
         log_system_info(run)
@@ -106,40 +128,30 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
         })
 
         # Data preparation phase
-        mlflow.set_tag("step", "data_preparation")
         print("📊 Preparing data...")
-        X_train, X_test, y_train, y_test = process_data(train_file, test_file)
+        X_train, X_test, y_train, y_test = prepare_data_traced(train_file, test_file)
         mlflow.log_metric("train_samples", len(X_train))
         mlflow.log_metric("test_samples", len(X_test))
         print("✅ Data preparation complete")
 
         # Model training phase
-        mlflow.set_tag("step", "model_training")
         print("🔧 Training model...")
-        model = train_xgb_model(X_train, y_train, model_version=model_version)
+        model = train_model_traced(X_train, y_train, model_version=model_version)
         print("✅ Model training complete")
 
         # Model evaluation phase
-        mlflow.set_tag("step", "model_evaluation")
         print("📈 Evaluating model...")
-        metrics = evaluate_xgb_model(model, X_test, y_test)
+        metrics = evaluate_model_traced(model, X_test, y_test)
         for k, v in metrics.items():
             mlflow.log_metric(f"metric.{k}", float(v))
         print("✅ Model evaluation complete")
 
         # Log model
-        mlflow.set_tag("step", "model_logging")
-        mlflow.xgboost.log_model(
-            model,
-            "model",
-            registered_model_name=f"churn_model_v{model_version}"
-        )
-        save_xgb_model(model, f"model_v{model_version}.joblib")
+        log_model_traced(model, model_version)
 
         # Log completion
         mlflow.log_param("completion_time", datetime.now().isoformat())
         mlflow.set_tag("pipeline_status", "completed")
-        mlflow.set_tag("step", "completed")
 
         artifact_uri = run.info.artifact_uri
         print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
@@ -176,13 +188,13 @@ def main() -> None:
             run_enhanced_pipeline(args.train_file, args.test_file)
         elif args.action == "train":
             with mlflow.start_run() as run:
-                X_train, _, y_train, _ = process_data(args.train_file, args.test_file)
-                train_xgb_model(X_train, y_train)
+                X_train, _, y_train, _ = prepare_data_traced(args.train_file, args.test_file)
+                train_model_traced(X_train, y_train, model_version=datetime.now().strftime("%Y%m%d_%H%M"))
         elif args.action == "evaluate":
             with mlflow.start_run() as run:
-                model = load_xgb_model()
-                _, X_test, _, y_test = process_data(args.train_file, args.test_file)
-                evaluate_xgb_model(model, X_test, y_test)
+                model = load_model_traced() if hasattr(load_model, 'traced') else load_xgb_model()  # Adjust for tracing
+                _, X_test, _, y_test = prepare_data_traced(args.train_file, args.test_file)
+                evaluate_model_traced(model, X_test, y_test)
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         sys.exit(1)
