@@ -8,8 +8,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./artifacts:/app/artifacts
-      - ./app.py:/app/app.py
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/app.py:/app/app.py
     networks:
       - app_network
 
@@ -20,8 +20,8 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./artifacts:/app/artifacts
-      - ./streamlit_app.py:/app/streamlit_app.py
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/streamlit_app.py:/app/streamlit_app.py
     depends_on:
       - fastapi
     networks:
@@ -34,8 +34,8 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - ./mlflow.db:/app/mlflow.db
-      - ./artifacts:/app/artifacts
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/mlflow.db:/app/mlflow.db
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
     networks:
       - app_network
 
