@@ -276,8 +276,8 @@ with st.form(key="churn_form", clear_on_submit=False):
             fig.update_layout(
                 paper_bgcolor="#ffffff",
                 plot_bgcolor="#ffffff",
-                height: 400,
-                width: 600,
+                height=400,
+                width=600,
                 margin=dict(l=20, r=20, t=50, b=20)
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -308,8 +308,8 @@ with st.form(key="churn_form", clear_on_submit=False):
                 fig.update_layout(
                     paper_bgcolor="#ffffff",
                     plot_bgcolor="#ffffff",
-                    height: 400,
-                    width: 600,
+                    height=400,
+                    width=600,
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
                 st.plotly_chart(fig, use_container_width=True)
