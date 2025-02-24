@@ -205,3 +205,4 @@ except Exception as e:
             echo "Pipeline failed. Check logs for details."
         }
     }
+}
