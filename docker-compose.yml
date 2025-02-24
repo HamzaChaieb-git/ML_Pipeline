@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./app.py:/app/app.py
+    networks:
+      - app_network
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./streamlit_app.py:/app/streamlit_app.py
+    depends_on:
+      - fastapi
+    networks:
+      - app_network
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./mlflow.db:/app/mlflow.db
+      - ./artifacts:/app/artifacts
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
