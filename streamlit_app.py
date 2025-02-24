@@ -9,7 +9,7 @@ from datetime import datetime
 # Set page configuration as the first Streamlit command for a clean, centered layout
 st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="collapsed")
 
-# Custom CSS for a simple, professional dark-themed design
+# Custom CSS for a professional, simple dark-themed design with enhanced styling
 st.markdown("""
     <style>
     /* Full-page dark background */
@@ -21,105 +21,123 @@ st.markdown("""
         overflow: auto;
     }
     .main {
-        padding: 20px;
+        padding: 30px;
         width: 100%;
-        max-width: 800px;
+        max-width: 900px;
         margin: 0 auto;
         background-color: transparent !important;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
     }
 
-    /* Header styling with red text */
+    /* Header styling with refined red text */
     .stHeader {
         color: #ff4040;
-        font-size: 48px;
+        font-size: 52px;
         font-weight: bold;
         text-align: center;
-        margin-bottom: 20px;
-        text-shadow: none;
+        margin-bottom: 25px;
+        text-shadow: 0 2px 5px rgba(255, 64, 64, 0.3);
+        font-family: 'Arial', sans-serif;
     }
 
     /* Subheader styling */
     .stSubheader {
         color: #ffffff;
-        font-size: 24px;
-        margin-top: 15px;
+        font-size: 28px;
+        margin-top: 20px;
         text-align: center;
+        font-family: 'Arial', sans-serif;
+        text-shadow: 0 1px 3px rgba(255, 255, 255, 0.1);
     }
 
     /* Text styling */
     .stText {
         color: #a2a2a2;
-        font-size: 16px;
+        font-size: 18px;
         text-align: center;
+        font-family: 'Arial', sans-serif;
+        line-height: 1.6;
     }
 
     /* Input fields and select boxes with dark blue theme */
     .stNumberInput, .stSelectbox {
         background-color: #16213e;
         border: 2px solid #0f3460;
-        border-radius: 8px;
-        padding: 10px;
+        border-radius: 10px;
+        padding: 12px;
         color: #ffffff;
-        margin: 5px 0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin: 10px 0;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        font-family: 'Arial', sans-serif;
+        font-size: 16px;
     }
     .stNumberInput > div > input, .stSelectbox > div > select {
         background-color: transparent !important;
         color: #ffffff !important;
         font-size: 16px;
+        font-family: 'Arial', sans-serif;
     }
     .stNumberInput > div > input:focus, .stSelectbox > div > select:focus {
         outline: none;
         border-color: #ff4040;
-        box-shadow: 0 0 5px #ff4040;
+        box-shadow: 0 0 8px #ff4040;
+        transition: border-color 0.3s, box-shadow 0.3s;
     }
 
-    /* Button styling with simple hover */
+    /* Button styling with polished hover */
     .stButton>button {
         background-color: #ff4040;
         color: white;
-        border-radius: 8px;
-        padding: 12px 24px;
-        font-size: 18px;
+        border-radius: 10px;
+        padding: 14px 30px;
+        font-size: 20px;
         border: none;
-        margin-top: 15px;
+        margin-top: 20px;
         width: 100%;
-        box-shadow: 0 2px 4px rgba(255, 64, 64, 0.2);
-        transition: background-color 0.3s, box-shadow 0.3s;
+        box-shadow: 0 4px 12px rgba(255, 64, 64, 0.3);
+        font-family: 'Arial', sans-serif;
+        transition: background-color 0.3s, box-shadow 0.3s, transform 0.2s;
     }
     .stButton>button:hover {
         background-color: #ff6b6b;
-        box-shadow: 0 4px 8px rgba(255, 64, 64, 0.4);
+        box-shadow: 0 6px 16px rgba(255, 64, 64, 0.5);
+        transform: scale(1.02);
     }
 
     /* Success message styling */
     .stSuccess {
         background-color: #2d6a4f;
         color: white;
-        padding: 10px;
-        border-radius: 8px;
+        padding: 12px;
+        border-radius: 10px;
         text-align: center;
-        margin-top: 15px;
-        box-shadow: 0 2px 4px rgba(45, 106, 79, 0.2);
+        margin-top: 20px;
+        box-shadow: 0 4px 8px rgba(45, 106, 79, 0.2);
+        font-family: 'Arial', sans-serif;
+        font-size: 18px;
     }
 
     /* Error message styling */
     .stError {
         background-color: #a4161a;
         color: white;
-        padding: 10px;
-        border-radius: 8px;
+        padding: 12px;
+        border-radius: 10px;
         text-align: center;
-        margin-top: 15px;
-        box-shadow: 0 2px 4px rgba(164, 22, 26, 0.2);
+        margin-top: 20px;
+        box-shadow: 0 4px 8px rgba(164, 22, 26, 0.2);
+        font-family: 'Arial', sans-serif;
+        font-size: 18px;
     }
 
     /* Chart styling for KPI-style gauge */
     .stPlotlyChart {
-        border-radius: 8px;
+        border-radius: 10px;
         overflow: hidden;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        margin-top: 20px;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+        margin-top: 25px;
+        margin-bottom: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -152,7 +170,7 @@ def load_latest_model():
 # Load model for local predictions (optional, for fallback)
 model = load_latest_model()
 
-# Input form for predictions with simple, professional styling
+# Input form for predictions with professional, simple styling
 st.markdown('<div class="stSubheader">Enter Customer Data</div>', unsafe_allow_html=True)
 with st.form(key="churn_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
