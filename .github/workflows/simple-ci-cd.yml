@@ -84,21 +84,34 @@ jobs:
           path: ./artifacts/
           if-no-files-found: warn
 
-      # New step: Keep services running and expose them (for demo purposes)
-      - name: Expose services with ngrok (optional)
+      - name: Expose services with ngrok (5 minutes only)
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
           echo "Installing ngrok to expose MLflow and Streamlit..."
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update && sudo apt install -y ngrok
-          ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}  # Add NGROK_AUTH_TOKEN in GitHub Secrets
-          ngrok http 5001 &  # Expose MLflow
-          ngrok http 8501 &  # Expose Streamlit
-          sleep 10
-          echo "MLflow URL: $(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
-          echo "Streamlit URL: $(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[1].public_url')"
-          echo "Services are running. Manually stop the workflow or wait for timeout (6 hours max)."
-          sleep 3600  # Keep alive for 1 hour (adjust as needed, max 6 hours)
+          ngrok authtoken $NGROK_AUTH_TOKEN
+          ngrok http 5001 > /dev/null &
+          ngrok http 8501 > /dev/null &
+          sleep 20  # Increased to 20 seconds to ensure services are ready
+          echo "Raw ngrok tunnels:"
+          curl -s http://localhost:4040/api/tunnels
+          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:5001"))[0].public_url')
+          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:8501"))[0].public_url')
+          if [ "$MLFLOW_URL" = "null" ] || [ "$STREAMLIT_URL" = "null" ]; then
+            echo "Error: One or both ngrok URLs are null. Showing detailed logs:"
+            docker compose logs mlflow
+            docker compose logs streamlit
+            exit 1
+          fi
+          echo "MLflow URL: $MLFLOW_URL"
+          echo "Streamlit URL: $STREAMLIT_URL"
+          echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
+          echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
+          echo "Services are running. Access MLflow at $MLFLOW_URL and Streamlit at $STREAMLIT_URL for the next 5 minutes."
+          sleep 300  # Keep alive for 5 minutes (300 seconds)
 
       - name: Cleanup
         if: always()
