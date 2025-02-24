@@ -3,10 +3,12 @@ import pandas as pd
 import joblib
 import requests
 import os
-from datetime import datetime
 import plotly.express as px
 
-# Custom CSS for styling
+# Set page configuration as the first Streamlit command
+st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="auto")
+
+# Custom CSS for styling (after set_page_config)
 st.markdown("""
     <style>
     .main {
@@ -42,9 +44,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-# Set page configuration for a clean look
-st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="auto")
 
 # Title and branding
 st.markdown('<div class="stHeader">Churn Prediction Dashboard</div>', unsafe_allow_html=True)
