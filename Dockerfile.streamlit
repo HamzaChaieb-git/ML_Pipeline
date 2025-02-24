@@ -4,6 +4,11 @@ FROM hamzachaieb01/ml-pipeline:latest
 # Set working directory
 WORKDIR /app
 
+# Install streamlit (and ensure it’s available in PATH)
+RUN pip install --no-cache-dir streamlit==1.32.2 && \
+    echo 'export PATH="$PATH:/usr/local/bin"' >> ~/.bashrc && \
+    source ~/.bashrc
+
 # Copy application files (assuming they aren't already in the base image)
 COPY streamlit_app.py .
 COPY artifacts/ /app/artifacts/
