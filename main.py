@@ -22,7 +22,7 @@ def setup_enhanced_mlflow():
     print(f"MLflow tracking URI: {tracking_uri}")
     
     # Create or get the experiment with custom metadata
-    experiment_name = "enhanced_churn_prediction"
+    experiment_name = "churn_prediction"
     experiment_tags = {
         "project_name": "churn_prediction",
         "project_version": "enhanced_v1",
@@ -40,22 +40,16 @@ def setup_enhanced_mlflow():
         else:
             experiment_id = mlflow.create_experiment(
                 experiment_name,
-                artifact_location=os.path.abspath("./mlruns/enhanced_experiments"),
+                artifact_location=os.path.abspath("./mlruns"),
                 tags=experiment_tags
             )
             print(f"Created new experiment '{experiment_name}' (ID: {experiment_id})")
+        
+        mlflow.set_experiment(experiment_name)
+        return experiment_id
     except Exception as e:
         print(f"⚠️ Warning: Error setting up experiment: {str(e)}")
-        experiment_id = mlflow.create_experiment(experiment_name)
-    
-    mlflow.set_experiment(experiment_name)
-    return experiment_id
-
-def get_enhanced_model_version():
-    """Generate detailed model version with timestamp."""
-    now = datetime.now()
-    timestamp = now.strftime("%Y%m%d_%H%M")
-    return f"{timestamp}"
+        raise
 
 def log_system_info():
     """Log system and environment information."""
@@ -66,72 +60,20 @@ def log_system_info():
         "memory_total": round(psutil.virtual_memory().total / (1024 * 1024 * 1024), 2),  # GB
         "memory_available": round(psutil.virtual_memory().available / (1024 * 1024 * 1024), 2),  # GB
         "cpu_count": psutil.cpu_count(),
-        "cpu_freq": psutil.cpu_freq().max if hasattr(psutil.cpu_freq(), 'max') else None,
         "mlflow_version": mlflow.__version__,
         "tracking_uri": mlflow.get_tracking_uri()
     }
     
     # Log as parameters
     for key, value in system_info.items():
-        if value is not None:  # Only log non-None values
+        if value is not None:
             mlflow.log_param(f"system_{key}", str(value))
     
     # Save detailed info as JSON artifact
     with open("system_info.json", "w") as f:
         json.dump(system_info, f, indent=4)
     mlflow.log_artifact("system_info.json")
-    
     print("✓ System information logged")
-
-def create_run_report(metrics: Dict, model_version: str, stage: str) -> None:
-    """Create and log a comprehensive run report."""
-    report = {
-        "run_info": {
-            "timestamp": datetime.now().isoformat(),
-            "model_version": model_version,
-            "stage": stage,
-            "metrics_summary": {
-                "accuracy": float(metrics.get("accuracy", 0)),
-                "precision": float(metrics.get("precision", 0)),
-                "recall": float(metrics.get("recall", 0)),
-                "f1": float(metrics.get("f1", 0)),
-                "roc_auc": float(metrics.get("roc_auc", 0))
-            },
-            "production_readiness": {
-                "accuracy_threshold_met": str(metrics.get("accuracy", 0) > 0.85),
-                "roc_auc_threshold_met": str(metrics.get("roc_auc", 0) > 0.85),
-                "precision_threshold_met": str(metrics.get("precision", 0) > 0.80),
-                "recall_threshold_met": str(metrics.get("recall", 0) > 0.80)
-            }
-        }
-    }
-    
-    # Save report
-    with open("run_report.json", "w") as f:
-        json.dump(report, f, indent=4)
-    mlflow.log_artifact("run_report.json")
-
-def verify_artifacts_logged(artifact_dir: str) -> bool:
-    """Verify that artifacts were logged correctly."""
-    if not os.path.exists(artifact_dir):
-        print(f"⚠️ Warning: Artifact directory not found: {artifact_dir}")
-        return False
-        
-    expected_artifacts = [
-        "system_info.json",
-        "run_report.json",
-        "feature_importance.png",
-        "confusion_matrix.png"
-    ]
-    
-    missing_artifacts = [art for art in expected_artifacts 
-                        if not os.path.exists(os.path.join(artifact_dir, art))]
-    
-    if missing_artifacts:
-        print(f"⚠️ Warning: Missing artifacts: {missing_artifacts}")
-        return False
-        
-    return True
 
 def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
     """Execute the enhanced ML pipeline with comprehensive MLflow tracking."""
@@ -139,14 +81,14 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
     
     # Setup MLflow with enhanced configuration
     experiment_id = setup_enhanced_mlflow()
-    model_version = get_enhanced_model_version()
+    model_version = datetime.now().strftime("%Y%m%d_%H%M")
     
-    # Start MLflow run with nested runs for each phase
-    with mlflow.start_run(experiment_id=experiment_id, run_name=f"Enhanced_Pipeline_v{model_version}") as main_run:
+    # Start MLflow run
+    with mlflow.start_run(run_name=f"Pipeline_v{model_version}") as run:
         try:
-            # Get run ID and artifact URI
-            run_id = main_run.info.run_id
-            artifact_uri = main_run.info.artifact_uri
+            # Log run information
+            run_id = run.info.run_id
+            artifact_uri = run.info.artifact_uri
             print(f"MLflow Run ID: {run_id}")
             print(f"Artifact URI: {artifact_uri}")
             
@@ -162,85 +104,39 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
             })
             
             # Data preparation phase
-            with mlflow.start_run(run_name="data_preparation", nested=True) as prep_run:
-                print("📊 Preparing data...")
-                mlflow.log_param("data_preparation_start", datetime.now().isoformat())
-                X_train, X_test, y_train, y_test = process_data(train_file, test_file)
-                mlflow.log_metric("train_samples", len(X_train))
-                mlflow.log_metric("test_samples", len(X_test))
-                print("✅ Data preparation complete")
+            print("📊 Preparing data...")
+            mlflow.log_param("data_preparation_start", datetime.now().isoformat())
+            X_train, X_test, y_train, y_test = process_data(train_file, test_file)
+            mlflow.log_metric("train_samples", len(X_train))
+            mlflow.log_metric("test_samples", len(X_test))
+            print("✅ Data preparation complete")
             
             # Model training phase
-            with mlflow.start_run(run_name="model_training", nested=True) as train_run:
-                print("🔧 Training model...")
-                mlflow.log_param("training_start", datetime.now().isoformat())
-                model = train_xgb_model(X_train, y_train, model_version=model_version)
-                print("✅ Model training complete")
+            print("🔧 Training model...")
+            mlflow.log_param("training_start", datetime.now().isoformat())
+            model = train_xgb_model(X_train, y_train, model_version=model_version)
+            print("✅ Model training complete")
             
             # Model evaluation phase
-            with mlflow.start_run(run_name="model_evaluation", nested=True) as eval_run:
-                print("📈 Evaluating model...")
-                mlflow.log_param("evaluation_start", datetime.now().isoformat())
-                metrics = evaluate_xgb_model(model, X_test, y_test)
-                print("✅ Model evaluation complete")
+            print("📈 Evaluating model...")
+            mlflow.log_param("evaluation_start", datetime.now().isoformat())
+            metrics = evaluate_xgb_model(model, X_test, y_test)
+            print("✅ Model evaluation complete")
             
-            # Model registration and staging
-            client = mlflow.tracking.MlflowClient()
-            
-            # Define production readiness criteria
-            is_production_ready = (
-                metrics.get("accuracy", 0) > 0.85 and 
-                metrics.get("roc_auc", 0) > 0.85 and
-                metrics.get("precision", 0) > 0.80 and
-                metrics.get("recall", 0) > 0.80
+            # Log final metrics and artifacts
+            mlflow.log_metrics(metrics)
+            mlflow.xgboost.log_model(
+                model,
+                "model",
+                registered_model_name=f"churn_model_v{model_version}"
             )
             
-            # Set appropriate stage based on metrics
-            stage = "Production" if is_production_ready else "Staging"
+            # Save model locally
+            save_xgb_model(model, f"model_v{model_version}.joblib")
             
-            try:
-                # Update model stage
-                model_details = client.get_latest_versions(
-                    f"churn_prediction_model_v{model_version}",
-                    stages=["None"]
-                )
-                if model_details:
-                    client.transition_model_version_stage(
-                        name=f"churn_prediction_model_v{model_version}",
-                        version=model_details[0].version,
-                        stage=stage
-                    )
-                    print(f"✅ Model transitioned to {stage} stage")
-                
-                # Create and log run report
-                create_run_report(metrics, model_version, stage)
-                
-                # Verify artifacts were logged
-                artifact_dir = artifact_uri.replace("file://", "") if artifact_uri.startswith("file://") else artifact_uri
-                artifacts_verified = verify_artifacts_logged(artifact_dir)
-                
-                # Log final run status
-                run_info = {
-                    "status": "completed",
-                    "completion_time": datetime.now().isoformat(),
-                    "model_stage": stage,
-                    "is_production_ready": str(is_production_ready),
-                    "model_version": model_version,
-                    "mlflow_run_id": run_id,
-                    "artifact_uri": artifact_uri,
-                    "artifacts_verified": str(artifacts_verified)
-                }
-                
-                with open("run_info.json", "w") as f:
-                    json.dump(run_info, f, indent=4)
-                mlflow.log_artifact("run_info.json")
-                
-                print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
-                print(f"📁 Artifacts saved to: {artifact_uri}")
-                print(f"🔍 MLflow UI: http://localhost:5001")
-                
-            except Exception as e:
-                print(f"⚠️ Warning: Could not update model stage: {str(e)}")
+            print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
+            print(f"📁 Artifacts saved to: {artifact_uri}")
+            print(f"🔍 MLflow UI: http://localhost:5001")
             
             return model, metrics
                 
