@@ -94,6 +94,13 @@ jobs:
             exit 1
           fi
       
+      - name: Archive Pipeline Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: ./artifacts/
+      
       - name: Stop Docker Compose
         if: always()
         run: |

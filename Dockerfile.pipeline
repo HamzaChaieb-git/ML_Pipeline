@@ -13,7 +13,7 @@ COPY model_evaluation.py .
 COPY model_training.py .
 COPY model_persistence.py .
 
-# Copy data files from root (since they’re not in a subdirectory)
+# Copy data files from root
 COPY churn-bigml-80.csv .
 COPY churn-bigml-20.csv .
 
@@ -23,8 +23,8 @@ COPY artifacts/ /app/artifacts/
 # Copy MLflow database for tracking
 COPY mlflow.db .
 
-# Copy requirements.txt if it exists (optional, for dependency verification)
-COPY requirements.txt .
+# Install missing libraries directly
+RUN pip install --no-cache-dir seaborn plotly
 
-# Command to run the pipeline (using root paths for data)
+# Command to run the pipeline
 CMD ["python", "main.py", "--train-file", "churn-bigml-80.csv", "--test-file", "churn-bigml-20.csv", "--action", "all"]
