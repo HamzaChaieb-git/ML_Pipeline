@@ -6,49 +6,60 @@ import os
 import plotly.graph_objects as go
 from datetime import datetime
 
-# Set page configuration as the first Streamlit command for a clean, centered layout
-st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="collapsed")
+# Set page configuration as the first Streamlit command for a full-page, centered layout
+st.set_page_config(page_title="Churn Prediction Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS for a professional, simple dark-themed design with enhanced styling
+# Custom CSS for a premium, professional dark-themed design with animations
 st.markdown("""
     <style>
-    /* Full-page dark background */
+    /* Full-page dark background with subtle gradient */
     body, .stApp {
-        background-color: #1a1a2e !important;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
         margin: 0;
         padding: 0;
         height: 100vh;
         overflow: auto;
     }
     .main {
-        padding: 30px;
+        padding: 40px;
         width: 100%;
-        max-width: 900px;
+        max-width: 1000px;
         margin: 0 auto;
-        background-color: transparent !important;
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
-        border-radius: 12px;
+        background-color: rgba(26, 26, 46, 0.9);
+        border-radius: 15px;
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.3);
+        animation: fadeIn 1s ease-in;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Header styling with refined red text */
+    /* Header styling with neon red text and animation */
     .stHeader {
         color: #ff4040;
-        font-size: 52px;
+        font-size: 60px;
         font-weight: bold;
         text-align: center;
-        margin-bottom: 25px;
-        text-shadow: 0 2px 5px rgba(255, 64, 64, 0.3);
+        margin-bottom: 30px;
+        text-shadow: 0 0 15px #ff4040, 0 0 25px #ff4040, 0 0 35px #ff4040;
         font-family: 'Arial', sans-serif;
+        animation: pulse 2s infinite ease-in-out;
+    }
+    @keyframes pulse {
+        0% { text-shadow: 0 0 15px #ff4040, 0 0 25px #ff4040, 0 0 35px #ff4040; }
+        50% { text-shadow: 0 0 10px #ff4040, 0 0 20px #ff4040, 0 0 30px #ff4040; }
+        100% { text-shadow: 0 0 15px #ff4040, 0 0 25px #ff4040, 0 0 35px #ff4040; }
     }
 
     /* Subheader styling */
     .stSubheader {
         color: #ffffff;
-        font-size: 28px;
-        margin-top: 20px;
+        font-size: 32px;
+        margin-top: 25px;
         text-align: center;
         font-family: 'Arial', sans-serif;
-        text-shadow: 0 1px 3px rgba(255, 255, 255, 0.1);
+        text-shadow: 0 1px 5px rgba(255, 255, 255, 0.2);
     }
 
     /* Text styling */
@@ -60,90 +71,125 @@ st.markdown("""
         line-height: 1.6;
     }
 
-    /* Input fields and select boxes with dark blue theme */
+    /* Input fields and select boxes with dark blue theme, matching +/- buttons */
     .stNumberInput, .stSelectbox {
         background-color: #16213e;
         border: 2px solid #0f3460;
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 12px;
         color: #ffffff;
         margin: 10px 0;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
         font-family: 'Arial', sans-serif;
-        font-size: 16px;
+        font-size: 18px;
+        position: relative;
     }
     .stNumberInput > div > input, .stSelectbox > div > select {
         background-color: transparent !important;
         color: #ffffff !important;
-        font-size: 16px;
+        font-size: 18px;
         font-family: 'Arial', sans-serif;
+        width: 100%;
+        text-align: center;
     }
     .stNumberInput > div > input:focus, .stSelectbox > div > select:focus {
         outline: none;
         border-color: #ff4040;
-        box-shadow: 0 0 8px #ff4040;
+        box-shadow: 0 0 10px #ff4040;
         transition: border-color 0.3s, box-shadow 0.3s;
     }
+    /* Style for +/- buttons to match your screenshot */
+    .stNumberInput > div > div > button {
+        background-color: #0f3460;
+        color: #ffffff;
+        border: none;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        font-size: 16px;
+        margin: 0 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        transition: background-color 0.3s, transform 0.2s;
+    }
+    .stNumberInput > div > div > button:hover {
+        background-color: #4682b4;
+        transform: scale(1.1);
+    }
 
-    /* Button styling with polished hover */
+    /* Selectbox dropdown styling */
+    .stSelectbox > div > select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        background: url('data:image/svg+xml;utf8,<svg fill="%23ffffff" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>') no-repeat right 10px center;
+        padding-right: 40px;
+    }
+
+    /* Button styling with polished hover and animation */
     .stButton>button {
         background-color: #ff4040;
         color: white;
-        border-radius: 10px;
-        padding: 14px 30px;
-        font-size: 20px;
+        border-radius: 12px;
+        padding: 16px 36px;
+        font-size: 22px;
         border: none;
-        margin-top: 20px;
+        margin-top: 25px;
         width: 100%;
-        box-shadow: 0 4px 12px rgba(255, 64, 64, 0.3);
+        box-shadow: 0 6px 15px rgba(255, 64, 64, 0.4);
         font-family: 'Arial', sans-serif;
         transition: background-color 0.3s, box-shadow 0.3s, transform 0.2s;
     }
     .stButton>button:hover {
         background-color: #ff6b6b;
-        box-shadow: 0 6px 16px rgba(255, 64, 64, 0.5);
-        transform: scale(1.02);
+        box-shadow: 0 8px 20px rgba(255, 64, 64, 0.6);
+        transform: scale(1.05);
     }
 
     /* Success message styling */
     .stSuccess {
         background-color: #2d6a4f;
         color: white;
-        padding: 12px;
-        border-radius: 10px;
+        padding: 14px;
+        border-radius: 12px;
         text-align: center;
-        margin-top: 20px;
-        box-shadow: 0 4px 8px rgba(45, 106, 79, 0.2);
+        margin-top: 25px;
+        box-shadow: 0 6px 12px rgba(45, 106, 79, 0.3);
         font-family: 'Arial', sans-serif;
-        font-size: 18px;
+        font-size: 20px;
+        animation: slideIn 0.5s ease-out;
+    }
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
     /* Error message styling */
     .stError {
         background-color: #a4161a;
         color: white;
-        padding: 12px;
-        border-radius: 10px;
+        padding: 14px;
+        border-radius: 12px;
         text-align: center;
-        margin-top: 20px;
-        box-shadow: 0 4px 8px rgba(164, 22, 26, 0.2);
+        margin-top: 25px;
+        box-shadow: 0 6px 12px rgba(164, 22, 26, 0.3);
         font-family: 'Arial', sans-serif;
-        font-size: 18px;
+        font-size: 20px;
+        animation: slideIn 0.5s ease-out;
     }
 
     /* Chart styling for KPI-style gauge */
     .stPlotlyChart {
-        border-radius: 10px;
+        border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
-        margin-top: 25px;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+        margin-top: 30px;
         margin-bottom: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Title and branding
-st.markdown('<div class="stHeader">Churn Prediction Dashboard</div>', unsafe_allow_html=True)
+# Title and branding with animation
+st.markdown('<div class="stHeader">Dashboard</div>', unsafe_allow_html=True)
 st.markdown('<div class="stText">Predict customer churn with a sleek, interactive, user-friendly interface.</div>', unsafe_allow_html=True)
 
 # Load model from artifacts (for fallback, if FastAPI fails)
@@ -170,7 +216,7 @@ def load_latest_model():
 # Load model for local predictions (optional, for fallback)
 model = load_latest_model()
 
-# Input form for predictions with professional, simple styling
+# Input form for predictions with professional, polished styling
 st.markdown('<div class="stSubheader">Enter Customer Data</div>', unsafe_allow_html=True)
 with st.form(key="churn_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
@@ -218,19 +264,19 @@ with st.form(key="churn_form", clear_on_submit=False):
                 mode="gauge+number",
                 value=prediction * 100,
                 title={'text': "Churn Probability (%)", 'font': {'size': 18, 'color': '#ffffff'}},
-                gauge={'axis': {'range': [0, 100], 'tickcolor': '#ffffff', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#ffffff'}},
+                gauge={'axis': {'range': [0, 100], 'tickcolor': '#ffffff', 'tickwidth': 1, 'tickfont': {'size': 14, 'color': '#ffffff'}},
                        'bar': {'color': "#4682b4"},  # Dark blue bar
                        'steps': [
                            {'range': [0, 50], 'color': "#16213e"},
                            {'range': [50, 100], 'color': "#0f3460"}],
                        'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 80}},
-                number={'valueformat': ".1f", 'font': {'size': 36, 'color': '#ffffff'}}
+                number={'valueformat': ".1f", 'font': {'size': 40, 'color': '#ffffff'}}
             ))
             fig.update_layout(
                 paper_bgcolor="#1a1a2e",
                 plot_bgcolor="#1a1a2e",
-                height=300,
-                width=500,
+                height=350,
+                width=600,
                 margin=dict(l=20, r=20, t=50, b=20)
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -250,19 +296,19 @@ with st.form(key="churn_form", clear_on_submit=False):
                     mode="gauge+number",
                     value=prediction * 100,
                     title={'text': "Churn Probability (%)", 'font': {'size': 18, 'color': '#ffffff'}},
-                    gauge={'axis': {'range': [0, 100], 'tickcolor': '#ffffff', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#ffffff'}},
+                    gauge={'axis': {'range': [0, 100], 'tickcolor': '#ffffff', 'tickwidth': 1, 'tickfont': {'size': 14, 'color': '#ffffff'}},
                            'bar': {'color': "#4682b4"},  # Dark blue bar
                            'steps': [
                                {'range': [0, 50], 'color': "#16213e"},
                                {'range': [50, 100], 'color': "#0f3460"}],
                            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 80}},
-                    number={'valueformat': ".1f", 'font': {'size': 36, 'color': '#ffffff'}}
+                    number={'valueformat': ".1f", 'font': {'size': 40, 'color': '#ffffff'}}
                 ))
                 fig.update_layout(
                     paper_bgcolor="#1a1a2e",
                     plot_bgcolor="#1a1a2e",
-                    height=300,
-                    width=500,
+                    height=350,
+                    width=600,
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
                 st.plotly_chart(fig, use_container_width=True)
