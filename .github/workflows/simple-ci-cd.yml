@@ -46,23 +46,35 @@ jobs:
 
       - name: Check Streamlit
         run: |
-          if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
-            echo "Streamlit is running properly"
-          else
-            echo "Streamlit server check failed, showing logs:"
-            docker compose logs streamlit
-            exit 1
-          fi
+          for i in {1..5}; do
+            if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
+              echo "Streamlit is running properly"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "Streamlit server check failed after 5 attempts, showing logs:"
+              docker compose logs streamlit
+              exit 1
+            fi
+            echo "Waiting 5 seconds before next attempt..."
+            sleep 5
+          done
 
       - name: Check MLflow
         run: |
-          if docker compose logs mlflow | grep -q "Listening at:"; then
-            echo "MLflow is running properly"
-          else
-            echo "MLflow server check failed, showing logs:"
-            docker compose logs mlflow
-            exit 1
-          fi
+          for i in {1..5}; do
+            if docker compose logs mlflow | grep -q "Listening at:"; then
+              echo "MLflow is running properly"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "MLflow server check failed after 5 attempts, showing logs:"
+              docker compose logs mlflow
+              exit 1
+            fi
+            echo "Waiting 5 seconds before next attempt..."
+            sleep 5
+          done
 
       - name: Verify Pipeline execution
         run: |
@@ -81,7 +93,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pipeline-artifacts
-          path: ./artifacts/
+          path: |
+            ./artifacts/
+            ./mlflow.db
           if-no-files-found: warn
 
       - name: Expose services with ngrok (5 minutes only)
@@ -93,19 +107,36 @@ jobs:
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update && sudo apt install -y ngrok
           ngrok authtoken $NGROK_AUTH_TOKEN
+          
+          # Wait for services to be fully ready (additional 10 seconds)
+          echo "Waiting an additional 10 seconds for services to stabilize..."
+          sleep 10
+
+          # Start ngrok tunnels sequentially to avoid free plan limitations
+          echo "Starting ngrok tunnel for MLflow (port 5001)..."
           ngrok http 5001 > /dev/null &
+          sleep 5  # Wait for MLflow tunnel to stabilize
+          echo "Starting ngrok tunnel for Streamlit (port 8501)..."
           ngrok http 8501 > /dev/null &
-          sleep 20  # Increased to 20 seconds to ensure services are ready
+          sleep 15  # Wait longer for both tunnels to stabilize
+
+          # Check ngrok tunnels and get URLs
           echo "Raw ngrok tunnels:"
           curl -s http://localhost:4040/api/tunnels
           MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:5001"))[0].public_url')
           STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:8501"))[0].public_url')
+          
+          # Verify URLs are not null
           if [ "$MLFLOW_URL" = "null" ] || [ "$STREAMLIT_URL" = "null" ]; then
             echo "Error: One or both ngrok URLs are null. Showing detailed logs:"
             docker compose logs mlflow
             docker compose logs streamlit
+            # Try to debug further by checking ngrok status
+            echo "Checking ngrok status..."
+            curl -s http://localhost:4040/status
             exit 1
           fi
+
           echo "MLflow URL: $MLFLOW_URL"
           echo "Streamlit URL: $STREAMLIT_URL"
           echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
