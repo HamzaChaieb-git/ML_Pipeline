@@ -12,6 +12,12 @@ services:
       - /home/hamza/hamza-chaieb-4DS1-ml_project/app.py:/app/app.py
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
 
   streamlit:
     build:
@@ -23,7 +29,8 @@ services:
       - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
       - /home/hamza/hamza-chaieb-4DS1-ml_project/streamlit_app.py:/app/streamlit_app.py
     depends_on:
-      - fastapi
+      fastapi:
+        condition: service_healthy
     networks:
       - app_network
 
