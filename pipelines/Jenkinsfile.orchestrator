@@ -130,10 +130,13 @@ pipeline {
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
+                            # Ensure /app exists and has correct permissions
                             docker exec model_trainer bash -c "
                                 mkdir -p /app && \
                                 mkdir -p /app/mlruns && \
-                                chmod -R 777 /app /mlflow_data
+                                chmod -R 777 /app /mlflow_data && \
+                                touch /app/test_file.txt && \
+                                rm /app/test_file.txt
                             "
                             
                             # Process data
