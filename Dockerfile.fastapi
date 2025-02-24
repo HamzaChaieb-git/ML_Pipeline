@@ -1,5 +1,5 @@
-# Use your existing ml-pipeline image as the base
-FROM ml-pipeline
+# Use your local ml-pipeline image
+FROM hamzachaieb01/ml-pipeline:latest
 
 # Set working directory
 WORKDIR /app
