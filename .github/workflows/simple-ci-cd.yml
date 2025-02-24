@@ -76,7 +76,7 @@ jobs:
       
       - name: Check MLflow logs
         run: |
-          if docker compose logs mlflow | grep -q "Serving MLflow UI at" || docker compose logs mlflow | grep -q "Running on http"; then
+          if docker compose logs mlflow | grep -q "Listening at:"; then
             echo "MLflow is running properly"
           else
             echo "MLflow server check failed, showing logs:"
