@@ -219,7 +219,7 @@ with st.form(key="churn_form", clear_on_submit=False):
         number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, value=1, key="vmail_messages")
         voice_mail_plan = st.selectbox("Voice Mail Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", key="voice_plan")
     
-    submit_button = st.button('🔮 Predict', use_container_width=True)
+    submit_button = st.form_submit_button(label="🔮 Predict", use_container_width=True)
 
     if submit_button:
         input_data = {
