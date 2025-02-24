@@ -5,74 +5,63 @@ import requests
 import os
 import plotly.graph_objects as go
 from datetime import datetime
-import json
 
-# Set page configuration as the first Streamlit command for full-page layout
-st.set_page_config(page_title="Churn Prediction Dashboard", layout="wide", initial_sidebar_state="collapsed")
+# Set page configuration as the first Streamlit command for a clean, centered layout
+st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="collapsed")
 
-# Custom CSS for a full-page, premium dark-themed design with animations
+# Custom CSS for a simple, professional dark-themed design
 st.markdown("""
     <style>
-    /* Full-page styling with dark background */
+    /* Full-page dark background */
     body, .stApp {
         background-color: #1a1a2e !important;
         margin: 0;
         padding: 0;
         height: 100vh;
-        overflow: hidden;
+        overflow: auto;
     }
     .main {
-        padding: 0 !important;
-        margin: 0 !important;
+        padding: 20px;
         width: 100%;
-        height: 100%;
+        max-width: 800px;
+        margin: 0 auto;
         background-color: transparent !important;
-        animation: fadeIn 1s ease-in;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Header styling with neon effect */
+    /* Header styling with red text */
     .stHeader {
         color: #ff4040;
-        font-size: 60px;
+        font-size: 48px;
         font-weight: bold;
         text-align: center;
-        margin: 20px 0;
-        text-shadow: 0 0 10px #ff4040, 0 0 20px #ff4040, 0 0 30px #ff4040;
-        animation: pulse 2s infinite ease-in-out;
-    }
-    @keyframes pulse {
-        0% { text-shadow: 0 0 10px #ff4040, 0 0 20px #ff4040, 0 0 30px #ff4040; }
-        50% { text-shadow: 0 0 5px #ff4040, 0 0 15px #ff4040, 0 0 25px #ff4040; }
-        100% { text-shadow: 0 0 10px #ff4040, 0 0 20px #ff4040, 0 0 30px #ff4040; }
+        margin-bottom: 20px;
+        text-shadow: none;
     }
 
     /* Subheader styling */
     .stSubheader {
         color: #ffffff;
-        font-size: 28px;
+        font-size: 24px;
         margin-top: 15px;
-        text-shadow: 0 1px 3px rgba(255, 255, 255, 0.2);
+        text-align: center;
     }
 
     /* Text styling */
     .stText {
         color: #a2a2a2;
         font-size: 16px;
-        line-height: 1.6;
+        text-align: center;
     }
 
     /* Input fields and select boxes with dark blue theme */
     .stNumberInput, .stSelectbox {
         background-color: #16213e;
         border: 2px solid #0f3460;
-        border-radius: 12px;
-        padding: 12px;
+        border-radius: 8px;
+        padding: 10px;
         color: #ffffff;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        margin: 5px 0;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     .stNumberInput > div > input, .stSelectbox > div > select {
         background-color: transparent !important;
@@ -82,91 +71,60 @@ st.markdown("""
     .stNumberInput > div > input:focus, .stSelectbox > div > select:focus {
         outline: none;
         border-color: #ff4040;
-        box-shadow: 0 0 8px #ff4040;
-        transition: border-color 0.3s, box-shadow 0.3s;
+        box-shadow: 0 0 5px #ff4040;
     }
 
-    /* Button styling with hover animation */
+    /* Button styling with simple hover */
     .stButton>button {
         background-color: #ff4040;
         color: white;
-        border-radius: 12px;
-        padding: 14px 28px;
-        font-size: 20px;
+        border-radius: 8px;
+        padding: 12px 24px;
+        font-size: 18px;
         border: none;
-        box-shadow: 0 4px 8px rgba(255, 64, 64, 0.4);
-        transition: background-color 0.3s, transform 0.2s, box-shadow 0.3s;
+        margin-top: 15px;
+        width: 100%;
+        box-shadow: 0 2px 4px rgba(255, 64, 64, 0.2);
+        transition: background-color 0.3s, box-shadow 0.3s;
     }
     .stButton>button:hover {
         background-color: #ff6b6b;
-        transform: scale(1.05);
-        box-shadow: 0 6px 12px rgba(255, 64, 64, 0.6);
+        box-shadow: 0 4px 8px rgba(255, 64, 64, 0.4);
     }
 
-    /* Success and error messages with animations */
+    /* Success message styling */
     .stSuccess {
         background-color: #2d6a4f;
         color: white;
-        padding: 12px;
-        border-radius: 10px;
+        padding: 10px;
+        border-radius: 8px;
         text-align: center;
-        margin-top: 10px;
-        animation: slideIn 0.5s ease-out;
-        box-shadow: 0 2px 4px rgba(45, 106, 79, 0.4);
+        margin-top: 15px;
+        box-shadow: 0 2px 4px rgba(45, 106, 79, 0.2);
     }
+
+    /* Error message styling */
     .stError {
         background-color: #a4161a;
         color: white;
-        padding: 12px;
-        border-radius: 10px;
+        padding: 10px;
+        border-radius: 8px;
         text-align: center;
-        margin-top: 10px;
-        animation: slideIn 0.5s ease-out;
-        box-shadow: 0 2px 4px rgba(164, 22, 26, 0.4);
-    }
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
+        margin-top: 15px;
+        box-shadow: 0 2px 4px rgba(164, 22, 26, 0.2);
     }
 
-    /* Chart styling with dark background */
+    /* Chart styling for KPI-style gauge */
     .stPlotlyChart {
-        border-radius: 15px;
+        border-radius: 8px;
         overflow: hidden;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         margin-top: 20px;
-    }
-
-    /* Footer styling */
-    .stFooter {
-        color: #a2a2a2;
-        text-align: center;
-        margin-top: 30px;
-        font-size: 16px;
-        opacity: 0.8;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        animation: fadeInUp 1s ease-in;
-    }
-    @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 0.8; transform: translateY(0); }
-    }
-
-    /* Tooltip styling for help icons */
-    .stHelpText {
-        color: #a2a2a2;
-        font-size: 14px;
-        background-color: #16213e;
-        padding: 5px 10px;
-        border-radius: 6px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        position: relative;
-        z-index: 1000;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Title and branding with animation
+# Title and branding
 st.markdown('<div class="stHeader">Churn Prediction Dashboard</div>', unsafe_allow_html=True)
 st.markdown('<div class="stText">Predict customer churn with a sleek, interactive, user-friendly interface.</div>', unsafe_allow_html=True)
 
@@ -194,36 +152,28 @@ def load_latest_model():
 # Load model for local predictions (optional, for fallback)
 model = load_latest_model()
 
-# Input form for predictions with advanced styling and tooltips
+# Input form for predictions with simple, professional styling
 st.markdown('<div class="stSubheader">Enter Customer Data</div>', unsafe_allow_html=True)
 with st.form(key="churn_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
     
     with col1:
-        total_day_minutes = st.number_input("Total Day Minutes", min_value=0.0, value=120.50, format="%.2f", 
-                                          help="Daily minutes of usage", key="day_minutes")
-        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, value=1, 
-                                               help="Number of customer service interactions", key="service_calls")
-        international_plan = st.selectbox("International Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", 
-                                        help="Does the customer have an international plan?", key="intl_plan")
+        total_day_minutes = st.number_input("Total Day Minutes", min_value=0.0, value=120.50, format="%.2f", key="day_minutes")
+        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, value=1, key="service_calls")
+        international_plan = st.selectbox("International Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", key="intl_plan")
     
     with col2:
-        total_intl_minutes = st.number_input("Total International Minutes", min_value=0.0, value=10.20, format="%.2f", 
-                                           help="International minutes of usage", key="intl_minutes")
-        total_intl_calls = st.number_input("Total International Calls", min_value=0, value=5, 
-                                         help="Number of international calls", key="intl_calls")
-        total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, value=200.00, format="%.2f", 
-                                          help="Evening minutes of usage", key="eve_minutes")
+        total_intl_minutes = st.number_input("Total International Minutes", min_value=0.0, value=10.20, format="%.2f", key="intl_minutes")
+        total_intl_calls = st.number_input("Total International Calls", min_value=0, value=5, key="intl_calls")
+        total_eve_minutes = st.number_input("Total Evening Minutes", min_value=0.0, value=200.00, format="%.2f", key="eve_minutes")
     
     col3, col4 = st.columns(2)
     
     with col3:
-        number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, value=1, 
-                                              help="Number of voicemail messages left", key="vmail_messages")
-        voice_mail_plan = st.selectbox("Voice Mail Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", 
-                                     help="Does the customer have a voicemail plan?", key="voice_plan")
+        number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, value=1, key="vmail_messages")
+        voice_mail_plan = st.selectbox("Voice Mail Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", key="voice_plan")
     
-    submit_button = st.form_submit_button(label="Predict Churn", help="Click to predict churn probability")
+    submit_button = st.form_submit_button(label="Predict Churn")
 
     if submit_button:
         input_data = {
@@ -245,13 +195,13 @@ with st.form(key="churn_form", clear_on_submit=False):
             st.markdown(f'<div class="stSuccess">Churn Probability: {prediction:.4f}</div>', unsafe_allow_html=True)
             st.markdown('<div class="stText">Note: A higher probability indicates a higher likelihood of churn.</div>', unsafe_allow_html=True)
             
-            # Advanced visualization: Gauge chart matching your screenshots
+            # KPI-style gauge chart matching your screenshot
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=prediction * 100,
-                title={'text': "Churn Probability (%)", 'font': {'size': 20, 'color': '#ffffff'}},
+                title={'text': "Churn Probability (%)", 'font': {'size': 18, 'color': '#ffffff'}},
                 gauge={'axis': {'range': [0, 100], 'tickcolor': '#ffffff', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#ffffff'}},
-                       'bar': {'color': "#4682b4"},  # Blue bar
+                       'bar': {'color': "#4682b4"},  # Dark blue bar
                        'steps': [
                            {'range': [0, 50], 'color': "#16213e"},
                            {'range': [50, 100], 'color': "#0f3460"}],
@@ -261,8 +211,8 @@ with st.form(key="churn_form", clear_on_submit=False):
             fig.update_layout(
                 paper_bgcolor="#1a1a2e",
                 plot_bgcolor="#1a1a2e",
-                height=400,
-                width=600,
+                height=300,
+                width=500,
                 margin=dict(l=20, r=20, t=50, b=20)
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -277,13 +227,13 @@ with st.form(key="churn_form", clear_on_submit=False):
                 st.markdown(f'<div class="stSuccess">Churn Probability (Local Model Fallback): {prediction:.4f}</div>', unsafe_allow_html=True)
                 st.markdown('<div class="stText">Note: A higher probability indicates a higher likelihood of churn.</div>', unsafe_allow_html=True)
                 
-                # Advanced visualization: Gauge chart for fallback
+                # KPI-style gauge chart for fallback
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=prediction * 100,
-                    title={'text': "Churn Probability (%)", 'font': {'size': 20, 'color': '#ffffff'}},
+                    title={'text': "Churn Probability (%)", 'font': {'size': 18, 'color': '#ffffff'}},
                     gauge={'axis': {'range': [0, 100], 'tickcolor': '#ffffff', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#ffffff'}},
-                           'bar': {'color': "#4682b4"},  # Blue bar
+                           'bar': {'color': "#4682b4"},  # Dark blue bar
                            'steps': [
                                {'range': [0, 50], 'color': "#16213e"},
                                {'range': [50, 100], 'color': "#0f3460"}],
@@ -293,27 +243,8 @@ with st.form(key="churn_form", clear_on_submit=False):
                 fig.update_layout(
                     paper_bgcolor="#1a1a2e",
                     plot_bgcolor="#1a1a2e",
-                    height=400,
-                    width=600,
+                    height=300,
+                    width=500,
                     margin=dict(l=20, r=20, t=50, b=20)
                 )
                 st.plotly_chart(fig, use_container_width=True)
-
-# Add an interactive footer with branding and animation
-st.markdown('<div class="stFooter">Powered by Streamlit & FastAPI | © 2025 <span style="color: #ff4040;">✨</span></div>', unsafe_allow_html=True)
-
-# Add a subtle animation on page load
-st.markdown("""
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const elements = document.querySelectorAll('.stContainer');
-        elements.forEach(element => {
-            element.style.opacity = 0;
-            setTimeout(() => {
-                element.style.transition = 'opacity 1s ease-in';
-                element.style.opacity = 1;
-            }, 100);
-        });
-    });
-    </script>
-""", unsafe_allow_html=True)
