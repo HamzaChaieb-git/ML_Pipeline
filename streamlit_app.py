@@ -6,10 +6,14 @@ import os
 import plotly.graph_objects as go
 from datetime import datetime
 
-# Set page configuration as the first Streamlit command for a clean, centered layout
-st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="collapsed")
+# Set page configuration as the first Streamlit command for a wide, clean layout
+st.set_page_config(
+    page_title="Churn Prediction Dashboard",
+    page_icon="📱",
+    layout="wide"
+)
 
-# Custom CSS for a professional, modern light-themed design with +/- buttons
+# Custom CSS for a professional, modern light-themed design with +/- buttons, matching your reference
 st.markdown("""
     <style>
     /* Light background with subtle gradient */
@@ -21,17 +25,15 @@ st.markdown("""
         overflow: auto;
     }
     .main {
-        padding: 40px;
+        padding: 20px;
         width: 100%;
-        max-width: 800px;
+        max-width: 1200px;
         margin: 0 auto;
-        background-color: #ffffff;
-        border-radius: 10px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        background-color: transparent;
     }
 
     /* Header styling with blue text */
-    .stHeader {
+    .stHeader, .st-title {
         color: #4a90e2;
         font-size: 48px;
         font-weight: bold;
@@ -41,7 +43,7 @@ st.markdown("""
     }
 
     /* Subheader styling */
-    .stSubheader {
+    .stSubheader, .st-header {
         color: #333;
         font-size: 24px;
         margin-top: 20px;
@@ -50,7 +52,7 @@ st.markdown("""
     }
 
     /* Text styling */
-    .stText {
+    .stText, .st-markdown {
         color: #666;
         font-size: 16px;
         text-align: center;
@@ -83,7 +85,7 @@ st.markdown("""
         box-shadow: 0 0 8px #4a90e2;
         transition: border-color 0.3s, box-shadow 0.3s;
     }
-    /* Style for +/- buttons to match your screenshot */
+    /* Style for +/- buttons to match your reference */
     .stNumberInput > div > div > button {
         background-color: #4a90e2;
         color: #ffffff;
@@ -168,7 +170,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Title and branding
+# Title and branding (matching your reference styling)
 st.markdown('<div class="stHeader">Churn Prediction Dashboard</div>', unsafe_allow_html=True)
 st.markdown('<div class="stText">Predict customer churn with an interactive, user-friendly interface.</div>', unsafe_allow_html=True)
 
@@ -217,7 +219,7 @@ with st.form(key="churn_form", clear_on_submit=False):
         number_vmail_messages = st.number_input("Number of Voicemail Messages", min_value=0, value=1, key="vmail_messages")
         voice_mail_plan = st.selectbox("Voice Mail Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", key="voice_plan")
     
-    submit_button = st.form_submit_button(label="Predict Churn")
+    submit_button = st.button('🔮 Predict', use_container_width=True)
 
     if submit_button:
         input_data = {
@@ -239,7 +241,7 @@ with st.form(key="churn_form", clear_on_submit=False):
             st.markdown(f'<div class="stSuccess">Churn Probability: {prediction:.4f}</div>', unsafe_allow_html=True)
             st.markdown('<div class="stText">Note: A higher probability indicates a higher likelihood of churn.</div>', unsafe_allow_html=True)
             
-            # KPI-style gauge chart matching your screenshot
+            # KPI-style gauge chart matching your reference screenshot
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=prediction * 100,
