@@ -1,3 +1,5 @@
+version: 2
+authtoken: ${NGROK_AUTH_TOKEN}
 tunnels:
   mlflow:
     addr: 5001
