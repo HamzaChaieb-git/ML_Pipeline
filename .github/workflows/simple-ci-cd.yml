@@ -98,11 +98,13 @@ jobs:
             ./mlflow.db
           if-no-files-found: warn
 
-      - name: Expose services with ngrok (5 minutes only)
+      - name: Expose services with ngrok using YAML config (5 minutes total)
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          echo "Installing ngrok to expose MLflow and Streamlit..."
+          echo "Installing ngrok to expose MLflow and Streamlit using YAML config..."
+
+          # Install ngrok
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update && sudo apt install -y ngrok
@@ -112,13 +114,10 @@ jobs:
           echo "Waiting an additional 10 seconds for services to stabilize..."
           sleep 10
 
-          # Start ngrok tunnels sequentially to avoid free plan limitations
-          echo "Starting ngrok tunnel for MLflow (port 5001)..."
-          ngrok http 5001 > /dev/null &
-          sleep 5  # Wait for MLflow tunnel to stabilize
-          echo "Starting ngrok tunnel for Streamlit (port 8501)..."
-          ngrok http 8501 > /dev/null &
-          sleep 15  # Wait longer for both tunnels to stabilize
+          # Start all tunnels defined in ngrok.yml
+          echo "Starting ngrok tunnels using configuration file..."
+          ngrok start --all > /dev/null &
+          sleep 20  # Wait for tunnels to stabilize
 
           # Check ngrok tunnels and get URLs
           echo "Raw ngrok tunnels:"
@@ -126,23 +125,51 @@ jobs:
           MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:5001"))[0].public_url')
           STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:8501"))[0].public_url')
           
-          # Verify URLs are not null
-          if [ "$MLFLOW_URL" = "null" ] || [ "$STREAMLIT_URL" = "null" ]; then
-            echo "Error: One or both ngrok URLs are null. Showing detailed logs:"
+          # Verify URLs and handle ngrok free plan limitation
+          if [ "$MLFLOW_URL" = "null" ] && [ "$STREAMLIT_URL" = "null" ]; then
+            echo "Error: Both ngrok URLs are null. This may indicate a free plan limitation or misconfiguration. Showing detailed logs:"
             docker compose logs mlflow
             docker compose logs streamlit
             # Try to debug further by checking ngrok status
             echo "Checking ngrok status..."
             curl -s http://localhost:4040/status
             exit 1
+          elif [ "$MLFLOW_URL" = "null" ]; then
+            echo "Warning: MLflow tunnel failed. Free plan may limit to one tunnel. Exposing Streamlit only for 5 minutes."
+            STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:8501"))[0].public_url')
+            if [ "$STREAMLIT_URL" = "null" ]; then
+              echo "Error: Streamlit ngrok URL is null. Showing detailed logs:"
+              docker compose logs streamlit
+              echo "Checking ngrok status..."
+              curl -s http://localhost:4040/status
+              exit 1
+            fi
+            echo "Streamlit URL: $STREAMLIT_URL"
+            echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
+            echo "Streamlit is running. Access it at $STREAMLIT_URL for 5 minutes."
+            sleep 300  # Keep Streamlit alive for 5 minutes (300 seconds)
+          elif [ "$STREAMLIT_URL" = "null" ]; then
+            echo "Warning: Streamlit tunnel failed. Free plan may limit to one tunnel. Exposing MLflow only for 5 minutes."
+            MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:5001"))[0].public_url')
+            if [ "$MLFLOW_URL" = "null" ]; then
+              echo "Error: MLflow ngrok URL is null. Showing detailed logs:"
+              docker compose logs mlflow
+              echo "Checking ngrok status..."
+              curl -s http://localhost:4040/status
+              exit 1
+            fi
+            echo "MLflow URL: $MLFLOW_URL"
+            echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
+            echo "MLflow is running. Access it at $MLFLOW_URL for 5 minutes."
+            sleep 300  # Keep MLflow alive for 5 minutes (300 seconds)
+          else
+            echo "Both MLflow and Streamlit tunnels are active (paid plan assumed). Access them for 5 minutes."
+            echo "MLflow URL: $MLFLOW_URL"
+            echo "Streamlit URL: $STREAMLIT_URL"
+            echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
+            echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
+            sleep 300  # Keep both alive for 5 minutes (300 seconds)
           fi
-
-          echo "MLflow URL: $MLFLOW_URL"
-          echo "Streamlit URL: $STREAMLIT_URL"
-          echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
-          echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
-          echo "Services are running. Access MLflow at $MLFLOW_URL and Streamlit at $STREAMLIT_URL for the next 5 minutes."
-          sleep 300  # Keep alive for 5 minutes (300 seconds)
 
       - name: Cleanup
         if: always()
