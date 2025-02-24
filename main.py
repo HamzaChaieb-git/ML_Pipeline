@@ -72,12 +72,18 @@ def evaluate_model_traced(model: Any, X_test: Any, y_test: Any) -> Dict[str, flo
 @mlflow.trace(attributes={"step": "model_logging"})
 def log_model_traced(model: Any, model_version: str) -> None:
     """Traced model logging step."""
+    # Ensure the artifacts/models directory exists
+    models_dir = os.path.join("artifacts", "models")
+    os.makedirs(models_dir, exist_ok=True)
+    
+    # Save the model to the artifacts/models directory
+    model_path = os.path.join(models_dir, f"model_v{model_version}.joblib")
     mlflow.xgboost.log_model(
         model,
         "model",
         registered_model_name=f"churn_model_v{model_version}"
     )
-    save_xgb_model(model, f"artifacts/models/model_v{model_version}.joblib")
+    save_xgb_model(model, model_path)
 
 def log_system_info(run):
     """Log system and environment information within an MLflow run."""
