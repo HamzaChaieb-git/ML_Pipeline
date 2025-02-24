@@ -1,128 +1,83 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import joblib  # Replace pickle with joblib
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+import joblib
+import mlflow
+import os
+from typing import List, Dict
 
-app = FastAPI()
+app = FastAPI(title="Churn Prediction API")
 
-# Initialize model as None
-model = None
-
-# Load the model when the app starts
-def load_model():
-    global model
+# Load the model from MLflow or local storage
+def load_model(model_path: str = "artifacts/models/model_v20250224_1032.joblib"):
     try:
-        model = joblib.load('model.joblib')  # Load model.joblib instead of model.pkl
-        print("Model loaded successfully")
+        model = joblib.load(model_path)
+        return model
     except Exception as e:
-        print(f"Error loading model: {e}")
-        raise Exception(f"Failed to load model: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
 
-# Load model at startup
-load_model()
+# Global model instance (loaded once on startup)
+model = load_model()
 
-class ChurnPredictionInput(BaseModel):
-    Total_day_minutes: float
-    Customer_service_calls: int
-    International_plan: str
-    Total_intl_minutes: float
-    Total_intl_calls: int
-    Total_eve_minutes: float
-    Number_vmail_messages: int
-    Voice_mail_plan: str
+# Define the expected input features (matching your training data)
+expected_features = [
+    "Total day minutes",
+    "Customer service calls",
+    "International plan",
+    "Total intl minutes",
+    "Total intl calls",
+    "Total eve minutes",
+    "Number vmail messages",
+    "Voice mail plan"
+]
 
-def preprocess_data(df):
-    """Preprocess the input data and pad with default values for missing features"""
-    df_processed = df.copy()
-    
-    # Rename columns to match the training data
-    column_mapping = {
-        'Total_day_minutes': 'Total day minutes',
-        'Customer_service_calls': 'Customer service calls',
-        'International_plan': 'International plan',
-        'Total_intl_minutes': 'Total intl minutes',
-        'Total_intl_calls': 'Total intl calls',
-        'Total_eve_minutes': 'Total eve minutes',
-        'Number_vmail_messages': 'Number vmail messages',
-        'Voice_mail_plan': 'Voice mail plan'
+@app.get("/health")
+def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+@app.post("/predict", response_model=Dict[str, float])
+def predict(churn_data: Dict[str, List[float]]):
+    """
+    Predict churn probability for a list of customer features.
+
+    Example input:
+    {
+        "Total day minutes": [120.5, 150.3, ...],
+        "Customer service calls": [3, 2, ...],
+        "International plan": [0, 1, ...],  # 0 for No, 1 for Yes
+        "Total intl minutes": [10.2, 8.5, ...],
+        "Total intl calls": [5, 4, ...],
+        "Total eve minutes": [200.0, 180.5, ...],
+        "Number vmail messages": [0, 5, ...],
+        "Voice mail plan": [0, 1, ...]  # 0 for No, 1 for Yes
     }
-    df_processed = df_processed.rename(columns=column_mapping)
-    
-    # Encode categorical variables
-    le = LabelEncoder()
-    categorical_features = ['International plan', 'Voice mail plan']
-    for feature in categorical_features:
-        df_processed[feature] = le.fit_transform(df_processed[feature])
-    
-    # Define all expected features (based on the 19-feature model)
-    expected_features = [
-        'State', 'Account length', 'Area code', 'International plan', 'Voice mail plan',
-        'Number vmail messages', 'Total day minutes', 'Total day calls', 'Total day charge',
-        'Total eve minutes', 'Total eve calls', 'Total eve charge', 'Total night minutes',
-        'Total night calls', 'Total night charge', 'Total intl minutes', 'Total intl calls',
-        'Total intl charge', 'Customer service calls'
-    ]
-    
-    # Add missing features with default values
-    default_values = {
-        'State': 0,  # Assuming LabelEncoder was used; use 0 as a placeholder
-        'Account length': 100,  # Average account length
-        'Area code': 415,  # Common area code
-        'Total day calls': 100,  # Average calls
-        'Total day charge': df_processed['Total day minutes'].iloc[0] * 0.17,  # Example rate: $0.17/min
-        'Total eve calls': 100,  # Average calls
-        'Total eve charge': df_processed['Total eve minutes'].iloc[0] * 0.085,  # Example rate: $0.085/min
-        'Total night minutes': 200,  # Average minutes
-        'Total night calls': 100,  # Average calls
-        'Total night charge': 200 * 0.045,  # Example rate: $0.045/min
-        'Total intl charge': df_processed['Total intl minutes'].iloc[0] * 0.27  # Example rate: $0.27/min
-    }
-    
-    for feature, value in default_values.items():
-        df_processed[feature] = value
-    
-    # Reorder columns to match model expectations
-    df_processed = df_processed[expected_features]
-    
-    return df_processed
-
-@app.post("/predict")
-async def predict(input_data: ChurnPredictionInput):
-    if model is None:
-        try:
-            load_model()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Model not loaded: {str(e)}")
-    
+    """
     try:
         # Convert input to DataFrame
-        df = pd.DataFrame([input_data.dict()])
+        input_df = pd.DataFrame(churn_data)
         
-        # Print input data for debugging
-        print("Input data before processing:", df.to_dict('records'))
-        
-        # Preprocess the data
-        df_processed = preprocess_data(df)
-        
-        # Print processed data for debugging
-        print("Processed data:", df_processed.to_dict('records'))
-        
-        # Make prediction
-        prediction = model.predict(df_processed)
-        probability = model.predict_proba(df_processed)[0]
-        
-        return {
-            "churn_prediction": "Yes" if prediction[0] == 1 else "No",
-            "churn_probability": float(probability[1])
-        }
-    except Exception as e:
-        print(f"Error during prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Validate input features
+        if not all(feature in input_df.columns for feature in expected_features):
+            missing = [f for f in expected_features if f not in input_df.columns]
+            raise HTTPException(status_code=400, detail=f"Missing features: {missing}")
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Churn Prediction API is running. Use /predict for predictions.",
-        "model_loaded": model is not None
-    }
+        # Ensure the order and types match the training data
+        input_df = input_df[expected_features]
+        for col in ["International plan", "Voice mail plan"]:
+            input_df[col] = input_df[col].astype(int)
+        for col in ["Total day minutes", "Customer service calls", "Total intl minutes", 
+                   "Total intl calls", "Total eve minutes", "Number vmail messages"]:
+            input_df[col] = pd.to_numeric(input_df[col], errors='coerce')
+
+        # Make predictions
+        predictions = model.predict_proba(input_df)[:, 1]  # Probability of churn (class 1)
+        
+        # Return predictions as a dictionary
+        return {"churn_probabilities": predictions.tolist()}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
