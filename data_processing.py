@@ -41,8 +41,10 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
         raise FileNotFoundError(f"Could not find data files: {e}")
 
     # Log data info
-    mlflow.log_param("train_samples", len(df_train))
-    mlflow.log_param("test_samples", len(df_test))
+    mlflow.log_params({
+        "train_samples": len(df_train),
+        "test_samples": len(df_test)
+    })
     
     # Check for missing columns
     missing_cols = [col for col in selected_features + ["Churn"] if col not in df_train.columns]
@@ -73,8 +75,8 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
         # Store the encoder
         label_encoders[feature] = le
         
-        # Log the encoding mapping
-        mapping = dict(zip(le.classes_, le.transform(le.classes_)))
+        # Log the encoding mapping - Convert all values to strings
+        mapping = {str(k): int(v) for k, v in dict(zip(le.classes_, le.transform(le.classes_))).items()}
         mlflow.log_dict(mapping, f"encoding_map_{feature}.json")
 
     # Handle numeric features
@@ -91,7 +93,7 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
         X_train[feature] = pd.to_numeric(X_train[feature], errors='coerce')
         X_test[feature] = pd.to_numeric(X_test[feature], errors='coerce')
         
-        # Log feature statistics
+        # Log feature statistics - ensure all values are Python native types
         stats = {
             "mean": float(X_train[feature].mean()),
             "std": float(X_train[feature].std()),
@@ -105,8 +107,9 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
     y_train = target_encoder.fit_transform(y_train)
     y_test = target_encoder.transform(y_test)
     
-    # Log target encoding mapping
-    target_mapping = dict(zip(target_encoder.classes_, target_encoder.transform(target_encoder.classes_)))
+    # Log target encoding mapping - Convert all values to strings
+    target_mapping = {str(k): int(v) for k, v in 
+                     dict(zip(target_encoder.classes_, target_encoder.transform(target_encoder.classes_))).items()}
     mlflow.log_dict(target_mapping, "target_encoding_map.json")
 
     # Log feature names and types
