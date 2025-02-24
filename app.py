@@ -100,10 +100,11 @@ def predict(churn_data: Dict[str, List[float]]):
         "Voice mail plan": [0, 1, ...]  # 0 for No, 1 for Yes
     }
     """
+    global model  # Moved to the beginning of the function
+    
     # Check if model is loaded
     if model is None:
         # Try to reload the model
-        global model
         model = load_latest_model()
         if model is None:
             raise HTTPException(status_code=503, detail="Model not loaded. Service unavailable.")
