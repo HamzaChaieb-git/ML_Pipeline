@@ -4,9 +4,9 @@ pipeline {
     environment {
         BASE_IMAGE = 'hamzachaieb01/dockerfinal'
         TAG = 'latest'
-        MLFLOW_TRACKING_URI = 'http://mlflow_server:5001'
+        WORKSPACE_SAFE = sh(script: 'echo "${WORKSPACE}" | sed "s/ /\\ /g"', returnStdout: true).trim()
+        MLFLOW_TRACKING_URI = 'http://localhost:5001'
         MLFLOW_EXPERIMENT_NAME = 'churn_prediction'
-        MLFLOW_DB_DIR = "${WORKSPACE_SAFE}/mlflow_data"
     }
     
     options {
@@ -15,6 +15,24 @@ pipeline {
     }
     
     stages {
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                usernameVariable: 'DOCKER_USERNAME', 
+                                passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+        
+        stage('Pull Image') {
+            steps {
+                script {
+                    sh "docker pull ${BASE_IMAGE}:${TAG}"
+                }
+            }
+        }
+        
         stage('Setup MLflow') {
             steps {
                 script {
@@ -25,15 +43,15 @@ pipeline {
                         
                         docker network create mlflow_net || true
                         
-                        mkdir -p "${MLFLOW_DB_DIR}"/{database,artifacts}
-                        chmod -R 777 "${MLFLOW_DB_DIR}"
+                        mkdir -p "${WORKSPACE_SAFE}/mlflow_data"/{database,artifacts}
+                        chmod -R 777 "${WORKSPACE_SAFE}/mlflow_data"
                         
                         docker run -d \
                             --name mlflow_server \
                             --network mlflow_net \
                             -p 5001:5001 \
-                            -v "${MLFLOW_DB_DIR}/database":/mlflow_data/database \
-                            -v "${MLFLOW_DB_DIR}/artifacts":/mlflow_data/artifacts \
+                            -v "${WORKSPACE_SAFE}/mlflow_data/database":/mlflow_data/database \
+                            -v "${WORKSPACE_SAFE}/mlflow_data/artifacts":/mlflow_data/artifacts \
                             ${BASE_IMAGE}:${TAG} \
                             bash -c "
                                 mkdir -p /mlflow_data/database /mlflow_data/artifacts && \
@@ -50,8 +68,54 @@ pipeline {
                 }
             }
         }
+        
+        stage('Code Quality Checks') {
+            steps {
+                script {
+                    try {
+                        // Create workspace for reports
+                        sh 'mkdir -p quality_reports'
 
-        stage('Train Model') {
+                        // Run Flake8
+                        sh '''
+                            docker run --name flake8_check -w /app ${BASE_IMAGE}:${TAG} \
+                                flake8 --output-file=flake8_report.txt . || true
+                            docker cp flake8_check:/app/flake8_report.txt quality_reports/ || true
+                            docker rm -f flake8_check || true
+                        '''
+
+                        // Run Black
+                        sh '''
+                            docker run --name black_check -w /app ${BASE_IMAGE}:${TAG} \
+                                black --check . > quality_reports/black_report.txt 2>&1 || true
+                            docker rm -f black_check || true
+                        '''
+
+                        // Run Bandit
+                        sh '''
+                            docker run --name bandit_check -w /app ${BASE_IMAGE}:${TAG} \
+                                bandit -r . -f txt -o bandit_report.txt || true
+                            docker cp bandit_check:/app/bandit_report.txt quality_reports/ || true
+                            docker rm -f bandit_check || true
+                        '''
+
+                        // Commit quality reports to image (optional)
+                        sh '''
+                            docker create --name quality_container ${BASE_IMAGE}:${TAG}
+                            docker cp quality_reports/. quality_container:/app/quality_reports/ || true
+                            docker commit quality_container ${BASE_IMAGE}:${TAG}-quality
+                            docker push ${BASE_IMAGE}:${TAG}-quality
+                            echo "Quality reports saved to image: ${BASE_IMAGE}:${TAG}-quality"
+                        '''
+                    } catch (Exception e) {
+                        echo "Error during quality checks: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
+        stage('Process Data and Train Model') {
             steps {
                 script {
                     try {
@@ -59,10 +123,10 @@ pipeline {
                             docker run -d \
                                 --name model_trainer \
                                 --network mlflow_net \
-                                -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
                                 -e MLFLOW_EXPERIMENT_NAME=${MLFLOW_EXPERIMENT_NAME} \
-                                -v "${MLFLOW_DB_DIR}/database":/mlflow_data/database \
-                                -v "${MLFLOW_DB_DIR}/artifacts":/mlflow_data/artifacts \
+                                -v "${WORKSPACE_SAFE}/mlflow_data/database":/mlflow_data/database \
+                                -v "${WORKSPACE_SAFE}/mlflow_data/artifacts":/mlflow_data/artifacts \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
@@ -71,27 +135,65 @@ pipeline {
                                 chmod -R 777 /app /mlflow_data
                             "
                             
-                            docker exec \
-                                -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                            # Process data
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                model_trainer python -u -m main prepare_data > /app/data_output.txt 2>&1
+                            
+                            # Train model
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
                                 -e MLFLOW_EXPERIMENT_NAME=${MLFLOW_EXPERIMENT_NAME} \
-                                model_trainer \
-                                python -c "
-import mlflow
-import os
-import sys
-
-mlflow.set_experiment(os.getenv('MLFLOW_EXPERIMENT_NAME', 'churn_prediction'))
-with mlflow.start_run():
-    sys.path.append('/app')
-    import main
-    main.run_full_pipeline('data/churn-bigml-80.csv', 'data/churn-bigml-20.csv')
-" 2>&1 | tee ${WORKSPACE}/training.log
+                                model_trainer python -u -m main train_model > /app/train_output.txt 2>&1
+                            
+                            sleep 10
+                            
+                            # Verify output files
+                            if ! docker exec model_trainer test -f /app/train_output.txt; then
+                                echo "ERROR: train_output.txt not found"
+                                docker logs model_trainer > train_logs.txt 2>&1 || echo "Failed to save logs"
+                                exit 1
+                            fi
+                            
+                            # Get MLflow run ID
+                            RUN_ID=\$(docker exec model_trainer grep 'MLflow run ID:' /app/train_output.txt | awk '{print \$NF}' || echo 'no_run_id')
+                            echo "Training Run ID: \$RUN_ID"
+                            
+                            # Evaluate model
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                -e MLFLOW_EXPERIMENT_NAME=${MLFLOW_EXPERIMENT_NAME} \
+                                model_trainer python -u -m main evaluate_model > /app/model_output.txt 2>&1
+                            
+                            # Save model
+                            docker exec -e MLFLOW_TRACKING_URI=http://localhost:5001 \
+                                model_trainer python -m main save_model
+                            
+                            # Commit and push updated image (optional)
+                            docker commit model_trainer ${BASE_IMAGE}:${TAG}-final
+                            docker push ${BASE_IMAGE}:${TAG}-final
+                            
+                            # Cleanup
+                            docker rm -f model_trainer || true
                         """
                     } catch (Exception e) {
-                        echo "Training failed: ${e.message}"
-                        sh 'docker logs model_trainer || true'
-                        throw e
+                        currentBuild.result = 'FAILURE'
+                        error "Pipeline failed: ${e.message}"
                     }
+                }
+            }
+        }
+        
+        stage('Analyze Reports') {
+            steps {
+                script {
+                    sh '''
+                        echo "=== Flake8 Results ==="
+                        cat quality_reports/flake8_report.txt || echo "No Flake8 issues found"
+
+                        echo "\\n=== Black Results ==="
+                        cat quality_reports/black_report.txt || echo "No Black issues found"
+
+                        echo "\\n=== Bandit Results ==="
+                        cat quality_reports/bandit_report.txt || echo "No Bandit issues found"
+                    '''
                 }
             }
         }
@@ -103,7 +205,7 @@ with mlflow.start_run():
                         sh '''
                             echo "=== Model Evaluation Results ==="
                             docker exec \
-                                -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
+                                -e MLFLOW_TRACKING_URI=http://localhost:5001 \
                                 model_trainer \
                                 python -c "
 import mlflow
@@ -138,24 +240,25 @@ except Exception as e:
     
     post {
         always {
-            sh """
+            sh '''
                 docker rm -f model_trainer || true
-                docker logout || true
-                docker system prune -f || true
-                
-                if [ -d "${MLFLOW_DB_DIR}" ]; then
-                    cd "${WORKSPACE_SAFE}" && tar -czf mlflow_artifacts.tar.gz -C "${MLFLOW_DB_DIR}" . || true
-                fi
-            """
-            archiveArtifacts artifacts: 'mlflow_artifacts.tar.gz,training.log', allowEmptyArchive: true
+                docker logout
+                docker system prune -f
+                rm -f data_output.txt train_output.txt model_output.txt train_logs.txt
+            '''
+            archiveArtifacts artifacts: 'quality_reports/**/*,data_output.txt,train_output.txt,model_output.txt,train_logs.txt', 
+                           allowEmptyArchive: true,
+                           fingerprint: true
+            cleanWs()
         }
         success {
-            echo "Pipeline completed successfully. MLflow UI available at http://localhost:5001"
+            echo "Pipeline completed successfully. Check MLflow at ${MLFLOW_TRACKING_URI}"
         }
         failure {
-            sh 'docker logs mlflow_server || true'
-            sh 'docker logs model_trainer || true'
-            echo "Pipeline failed. Check logs for details."
+            echo "Pipeline failed"
+        }
+        unstable {
+            echo "Pipeline completed with issues"
         }
     }
 }
