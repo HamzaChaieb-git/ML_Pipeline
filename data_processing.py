@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from typing import Tuple
 import mlflow
-
+import os
 
 def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray]:
     """
@@ -77,7 +77,7 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
         
         # Log the encoding mapping - Convert all values to strings
         mapping = {str(k): int(v) for k, v in dict(zip(le.classes_, le.transform(le.classes_))).items()}
-        mlflow.log_dict(mapping, f"encoding_map_{feature}.json")
+        mlflow.log_dict(mapping, os.path.join("artifacts", "data", f"encoding_map_{feature}.json"))
 
     # Handle numeric features
     numeric_features = [
@@ -100,7 +100,7 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
             "min": float(X_train[feature].min()),
             "max": float(X_train[feature].max())
         }
-        mlflow.log_dict(stats, f"feature_stats_{feature}.json")
+        mlflow.log_dict(stats, os.path.join("artifacts", "data", f"feature_stats_{feature}.json"))
 
     # Convert target to numeric
     target_encoder = LabelEncoder()
@@ -110,7 +110,7 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
     # Log target encoding mapping - Convert all values to strings
     target_mapping = {str(k): int(v) for k, v in 
                      dict(zip(target_encoder.classes_, target_encoder.transform(target_encoder.classes_))).items()}
-    mlflow.log_dict(target_mapping, "target_encoding_map.json")
+    mlflow.log_dict(target_mapping, os.path.join("artifacts", "data", "target_encoding_map.json"))
 
     # Log feature names and types
     feature_info = {
@@ -118,7 +118,7 @@ def prepare_data(train_file: str, test_file: str) -> Tuple[pd.DataFrame, pd.Data
         "numeric_features": numeric_features,
         "target": "Churn"
     }
-    mlflow.log_dict(feature_info, "feature_info.json")
+    mlflow.log_dict(feature_info, os.path.join("artifacts", "data", "feature_info.json"))
 
     print("🔹 Data preparation complete")
     return X_train, X_test, y_train, y_test
