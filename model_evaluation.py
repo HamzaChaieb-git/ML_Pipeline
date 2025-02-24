@@ -1,5 +1,6 @@
 """Enhanced module for evaluating machine learning models with comprehensive MLflow tracking."""
 
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -87,6 +88,48 @@ def create_evaluation_artifacts(y_test: np.ndarray, y_pred: np.ndarray,
     # Log all artifacts
     mlflow.log_artifacts(artifact_dir)
 
+def create_summary_report(metrics: Dict[str, float], artifact_dir: str) -> None:
+    """Create and save a comprehensive summary report."""
+    report = {
+        "model_performance": {
+            "overall_metrics": {
+                "accuracy": metrics["accuracy"],
+                "roc_auc": metrics["roc_auc"],
+                "log_loss": metrics["log_loss"]
+            },
+            "class_metrics": {
+                "class_0": {
+                    "precision": metrics["precision_class_0"],
+                    "recall": metrics["recall_class_0"],
+                    "f1": metrics["f1_class_0"]
+                },
+                "class_1": {
+                    "precision": metrics["precision_class_1"],
+                    "recall": metrics["recall_class_1"],
+                    "f1": metrics["f1_class_1"]
+                }
+            },
+            "confusion_matrix": {
+                "true_negatives": metrics["true_negatives"],
+                "false_positives": metrics["false_positives"],
+                "false_negatives": metrics["false_negatives"],
+                "true_positives": metrics["true_positives"]
+            },
+            "derived_metrics": {
+                "balanced_accuracy": metrics["balanced_accuracy"],
+                "precision_recall_ratio": metrics["precision_recall_ratio"],
+                "false_positive_rate": metrics["false_positive_rate"],
+                "false_negative_rate": metrics["false_negative_rate"]
+            }
+        },
+        "evaluation_timestamp": datetime.now().isoformat(),
+        "model_recommendation": "production" if metrics["accuracy"] > 0.85 and metrics["roc_auc"] > 0.85 else "staging"
+    }
+    
+    with open(f"{artifact_dir}/evaluation_summary.json", "w") as f:
+        json.dump(report, f, indent=4)
+    mlflow.log_artifact(f"{artifact_dir}/evaluation_summary.json")
+
 def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     """
     Enhanced model evaluation with comprehensive metrics and visualizations.
@@ -99,6 +142,10 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     Returns:
         Dictionary containing all computed metrics
     """
+    # Create artifacts directory
+    artifact_dir = f"model_evaluation_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    os.makedirs(artifact_dir, exist_ok=True)
+
     # Get predictions
     y_pred = model.predict(X_test)
     y_pred_proba = model.predict_proba(X_test)
@@ -156,10 +203,8 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     
     create_evaluation_artifacts(y_test, y_pred, y_pred_proba, feature_names)
     
-    # Save all metrics as JSON
-    with open("all_metrics.json", "w") as f:
-        json.dump(metrics, f, indent=4)
-    mlflow.log_artifact("all_metrics.json")
+    # Create and log summary report
+    create_summary_report(metrics, artifact_dir)
     
     # Print evaluation results
     print("\nDetailed Classification Report:")
