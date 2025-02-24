@@ -40,7 +40,7 @@ jobs:
 
       - name: Run ML Pipeline
         run: |
-          docker exec hamza-chaieb-4ds1-ml_project_pipeline_1 python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all
+          docker exec ml_pipeline-pipeline-1 python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all
 
       - name: Stop Docker Compose
         run: |

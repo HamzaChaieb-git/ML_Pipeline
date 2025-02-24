@@ -8,8 +8,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/app.py:/app/app.py
+      - ./artifacts:/app/artifacts  # Use relative path for artifacts
+      - ./app.py:/app/app.py       # Use relative path for app.py
     networks:
       - app_network
     healthcheck:
@@ -26,8 +26,8 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/streamlit_app.py:/app/streamlit_app.py
+      - ./artifacts:/app/artifacts  # Use relative path for artifacts
+      - ./streamlit_app.py:/app/streamlit_app.py  # Use relative path for streamlit_app.py
     depends_on:
       fastapi:
         condition: service_healthy
@@ -41,8 +41,8 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/mlflow.db:/app/mlflow.db
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts
+      - ./mlflow.db:/app/mlflow.db  # Use relative path for mlflow.db
+      - ./artifacts:/app/artifacts  # Use relative path for artifacts
     networks:
       - app_network
 
@@ -51,15 +51,9 @@ services:
       context: .
       dockerfile: Dockerfile.pipeline
     volumes:
-      - /home/hamza/hamza-chaieb-4DS1-ml_project:/app  # Mount the entire project root for all files
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts  # Specific mount for artifacts
-      - /home/hamza/hamza-chaieb-4DS1-ml_project/mlflow.db:/app/mlflow.db  # Specific mount for MLflow DB
+      - ./:/app  # Mount the entire project root for all files (simpler for root-level data and scripts)
+      - ./artifacts:/app/artifacts  # Specific mount for artifacts
+      - ./mlflow.db:/app/mlflow.db  # Specific mount for MLflow DB
     depends_on:
       mlflow:
-        condition: service_started
-    networks:
-      - app_network
-
-networks:
-  app_network:
-    driver: bridge
+        condition: service
