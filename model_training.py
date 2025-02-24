@@ -29,8 +29,8 @@ class TrainingArtifacts:
                 "n_samples": len(X),
                 "n_features": X.shape[1],
                 "feature_names": X.columns.tolist(),
-                "class_distribution": pd.Series(y).value_counts().to_dict(),
-                "missing_values": X.isnull().sum().to_dict()
+                "class_distribution": {str(k): int(v) for k, v in pd.Series(y).value_counts().to_dict().items()},
+                "missing_values": {str(k): int(v) for k, v in X.isnull().sum().to_dict().items()}
             },
             "feature_stats": {
                 col: {
@@ -49,25 +49,27 @@ class TrainingArtifacts:
 
     def create_correlation_matrix(self, X: pd.DataFrame) -> None:
         """Create and log correlation matrix visualizations."""
-        # Calculate correlations
-        corr_matrix = X.corr()
-        
-        # Static correlation heatmap
-        plt.figure(figsize=(12, 8))
-        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, fmt='.2f')
-        plt.title('Feature Correlation Matrix')
-        plt.tight_layout()
-        plt.savefig(f"{self.artifact_dir}/correlation_matrix.png")
-        plt.close()
-        
-        # Interactive correlation heatmap
-        fig = px.imshow(corr_matrix,
-                       labels=dict(color="Correlation"),
-                       title="Interactive Feature Correlation Matrix")
-        fig.write_html(f"{self.artifact_dir}/correlation_matrix.html")
-        
-        mlflow.log_artifact(f"{self.artifact_dir}/correlation_matrix.png")
-        mlflow.log_artifact(f"{self.artifact_dir}/correlation_matrix.html")
+        # Calculate correlations for numeric columns only
+        numeric_cols = X.select_dtypes(include=['int64', 'float64']).columns
+        if len(numeric_cols) > 0:
+            corr_matrix = X[numeric_cols].corr()
+            
+            # Static correlation heatmap
+            plt.figure(figsize=(12, 8))
+            sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, fmt='.2f')
+            plt.title('Feature Correlation Matrix')
+            plt.tight_layout()
+            plt.savefig(f"{self.artifact_dir}/correlation_matrix.png")
+            plt.close()
+            
+            # Interactive correlation heatmap
+            fig = px.imshow(corr_matrix,
+                           labels=dict(color="Correlation"),
+                           title="Interactive Feature Correlation Matrix")
+            fig.write_html(f"{self.artifact_dir}/correlation_matrix.html")
+            
+            mlflow.log_artifact(f"{self.artifact_dir}/correlation_matrix.png")
+            mlflow.log_artifact(f"{self.artifact_dir}/correlation_matrix.html")
 
     def plot_feature_distributions(self, X: pd.DataFrame) -> None:
         """Create and log feature distribution plots."""
@@ -82,14 +84,19 @@ class TrainingArtifacts:
 
     def log_training_progress(self, results: Dict) -> None:
         """Log interactive training progress visualization."""
+        if not results:
+            return
+            
         fig = go.Figure()
         
-        for metric, values in results.items():
-            fig.add_trace(go.Scatter(
-                y=values,
-                name=metric,
-                mode='lines'
-            ))
+        for metric_name, values in results.items():
+            if isinstance(values, dict):
+                for eval_name, eval_values in values.items():
+                    fig.add_trace(go.Scatter(
+                        y=eval_values,
+                        name=f"{metric_name}-{eval_name}",
+                        mode='lines'
+                    ))
         
         fig.update_layout(
             title='Training Progress',
@@ -146,6 +153,7 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
         "scale_pos_weight": 1,      # Class weight balance
         "enable_categorical": True,  # Enable categorical feature support
         "tree_method": "hist",      # Use histogram-based algorithm
+        "eval_metric": ["error", "logloss", "auc"],  # Evaluation metrics
         "use_label_encoder": False  # Disable label encoding warning
     }
     
@@ -180,14 +188,12 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
 
     # Create evaluation set
     eval_set = [(X_train_final, y_train_final), (X_val, y_val)]
-    eval_metric = ["error", "logloss", "auc"]
 
-    # Train model with callback for logging
+    # Train model
     model.fit(
         X_train_final,
         y_train_final,
         eval_set=eval_set,
-        eval_metric=eval_metric,
         verbose=True
     )
 
