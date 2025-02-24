@@ -1,8 +1,11 @@
-"""Enhanced main module for running the ML pipeline with MLflow tracking."""
+"""Enhanced main module for running the ML pipeline with MLflow tracking and tracing."""
 
 import argparse
 import os
 import mlflow
+import mlflow.xgboost
+import mlflow.sklearn
+from mlflow.tracking import MlflowClient
 import sys
 from datetime import datetime
 from typing import Dict, Any, Tuple
@@ -15,11 +18,15 @@ import platform
 import psutil
 
 def setup_enhanced_mlflow():
-    """Setup enhanced MLflow tracking with custom configuration."""
+    """Setup enhanced MLflow tracking with custom configuration and tracing."""
     # Set up MLflow tracking URI to match existing configuration
     tracking_uri = "sqlite:///mlflow.db"
     mlflow.set_tracking_uri(tracking_uri)
     print(f"MLflow tracking URI: {tracking_uri}")
+    
+    # Enable MLflow autologging for relevant frameworks
+    mlflow.xgboost.autolog()
+    mlflow.sklearn.autolog()
     
     # Create or get the experiment with custom metadata
     experiment_name = "churn_prediction"
@@ -29,7 +36,8 @@ def setup_enhanced_mlflow():
         "department": "data_science",
         "owner": "mlops_team",
         "framework": "xgboost",
-        "pipeline_type": "binary_classification"
+        "pipeline_type": "binary_classification",
+        "enable_tracing": "true"
     }
     
     try:
@@ -46,6 +54,11 @@ def setup_enhanced_mlflow():
             print(f"Created new experiment '{experiment_name}' (ID: {experiment_id})")
         
         mlflow.set_experiment(experiment_name)
+        
+        # Enable tracing flags
+        os.environ["MLFLOW_ENABLE_TRACING"] = "true"
+        os.environ["MLFLOW_TRACING_SAMPLING_RATE"] = "1.0"
+        
         return experiment_id
     except Exception as e:
         print(f"⚠️ Warning: Error setting up experiment: {str(e)}")
@@ -75,17 +88,48 @@ def log_system_info():
     mlflow.log_artifact("system_info.json")
     print("✓ System information logged")
 
+def create_run_report(metrics: Dict, model_version: str, stage: str) -> None:
+    """Create and log a comprehensive run report."""
+    report = {
+        "run_info": {
+            "timestamp": datetime.now().isoformat(),
+            "model_version": model_version,
+            "stage": stage,
+            "metrics_summary": {
+                "accuracy": float(metrics.get("accuracy", 0)),
+                "precision": float(metrics.get("precision", 0)),
+                "recall": float(metrics.get("recall", 0)),
+                "f1": float(metrics.get("f1", 0)),
+                "roc_auc": float(metrics.get("roc_auc", 0))
+            },
+            "production_readiness": {
+                "accuracy_threshold_met": str(metrics.get("accuracy", 0) > 0.85),
+                "roc_auc_threshold_met": str(metrics.get("roc_auc", 0) > 0.85),
+                "precision_threshold_met": str(metrics.get("precision", 0) > 0.80),
+                "recall_threshold_met": str(metrics.get("recall", 0) > 0.80)
+            }
+        }
+    }
+    
+    # Save report
+    with open("run_report.json", "w") as f:
+        json.dump(report, f, indent=4)
+    mlflow.log_artifact("run_report.json")
+
 def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
-    """Execute the enhanced ML pipeline with comprehensive MLflow tracking."""
+    """Execute the enhanced ML pipeline with comprehensive MLflow tracking and tracing."""
     print("🚀 Launching enhanced ML pipeline...")
     
     # Setup MLflow with enhanced configuration
     experiment_id = setup_enhanced_mlflow()
     model_version = datetime.now().strftime("%Y%m%d_%H%M")
     
-    # Start MLflow run
+    # Start MLflow run with tracing enabled
     with mlflow.start_run(run_name=f"Pipeline_v{model_version}") as run:
         try:
+            # Enable detailed tracing for this run
+            mlflow.start_trace("pipeline_execution")
+            
             # Log run information
             run_id = run.info.run_id
             artifact_uri = run.info.artifact_uri
@@ -93,50 +137,77 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
             print(f"Artifact URI: {artifact_uri}")
             
             # Log system information
-            log_system_info()
+            with mlflow.start_trace("system_info"):
+                log_system_info()
             
             # Log input parameters
             mlflow.log_params({
                 "train_file": train_file,
                 "test_file": test_file,
                 "model_version": model_version,
-                "pipeline_type": "enhanced"
+                "pipeline_type": "enhanced",
+                "tracing_enabled": "true"
             })
             
             # Data preparation phase
-            print("📊 Preparing data...")
-            mlflow.log_param("data_preparation_start", datetime.now().isoformat())
-            X_train, X_test, y_train, y_test = process_data(train_file, test_file)
-            mlflow.log_metric("train_samples", len(X_train))
-            mlflow.log_metric("test_samples", len(X_test))
-            print("✅ Data preparation complete")
+            with mlflow.start_trace("data_preparation"):
+                print("📊 Preparing data...")
+                mlflow.log_param("data_preparation_start", datetime.now().isoformat())
+                X_train, X_test, y_train, y_test = process_data(train_file, test_file)
+                mlflow.log_metric("train_samples", len(X_train))
+                mlflow.log_metric("test_samples", len(X_test))
+                print("✅ Data preparation complete")
             
             # Model training phase
-            print("🔧 Training model...")
-            mlflow.log_param("training_start", datetime.now().isoformat())
-            model = train_xgb_model(X_train, y_train, model_version=model_version)
-            print("✅ Model training complete")
+            with mlflow.start_trace("model_training"):
+                print("🔧 Training model...")
+                mlflow.log_param("training_start", datetime.now().isoformat())
+                model = train_xgb_model(X_train, y_train, model_version=model_version)
+                print("✅ Model training complete")
             
             # Model evaluation phase
-            print("📈 Evaluating model...")
-            mlflow.log_param("evaluation_start", datetime.now().isoformat())
-            metrics = evaluate_xgb_model(model, X_test, y_test)
-            print("✅ Model evaluation complete")
+            with mlflow.start_trace("model_evaluation"):
+                print("📈 Evaluating model...")
+                mlflow.log_param("evaluation_start", datetime.now().isoformat())
+                metrics = evaluate_xgb_model(model, X_test, y_test)
+                print("✅ Model evaluation complete")
             
-            # Log final metrics and artifacts
-            mlflow.log_metrics(metrics)
-            mlflow.xgboost.log_model(
-                model,
-                "model",
-                registered_model_name=f"churn_model_v{model_version}"
-            )
+            # Model registration and staging
+            with mlflow.start_trace("model_registration"):
+                # Define production readiness criteria
+                is_production_ready = (
+                    metrics.get("accuracy", 0) > 0.85 and 
+                    metrics.get("roc_auc", 0) > 0.85 and
+                    metrics.get("precision", 0) > 0.80 and
+                    metrics.get("recall", 0) > 0.80
+                )
+                
+                # Set appropriate stage based on metrics
+                stage = "Production" if is_production_ready else "Staging"
+                
+                try:
+                    # Create and log run report
+                    create_run_report(metrics, model_version, stage)
+                    
+                    # Log final metrics and artifacts
+                    mlflow.log_metrics(metrics)
+                    mlflow.xgboost.log_model(
+                        model,
+                        "model",
+                        registered_model_name=f"churn_model_v{model_version}"
+                    )
+                    
+                    # Save model locally
+                    save_xgb_model(model, f"model_v{model_version}.joblib")
+                    
+                    print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
+                    print(f"📁 Artifacts saved to: {artifact_uri}")
+                    print(f"🔍 MLflow UI: http://localhost:5001")
+                    
+                except Exception as e:
+                    print(f"⚠️ Warning: Could not register model: {str(e)}")
             
-            # Save model locally
-            save_xgb_model(model, f"model_v{model_version}.joblib")
-            
-            print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
-            print(f"📁 Artifacts saved to: {artifact_uri}")
-            print(f"🔍 MLflow UI: http://localhost:5001")
+            mlflow.end_trace()  # End the pipeline execution trace
             
             return model, metrics
                 
@@ -146,9 +217,10 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
                 "error_message": str(e),
                 "timestamp": datetime.now().isoformat()
             }
-            with open("error_info.json", "w") as f:
-                json.dump(error_info, f, indent=4)
-            mlflow.log_artifact("error_info.json")
+            with mlflow.start_trace("error_handling"):
+                with open("error_info.json", "w") as f:
+                    json.dump(error_info, f, indent=4)
+                mlflow.log_artifact("error_info.json")
             
             print(f"❌ Error in pipeline: {str(e)}")
             raise e
