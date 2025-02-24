@@ -5,9 +5,10 @@ FROM hamzachaieb01/ml-pipeline:latest
 WORKDIR /app
 
 # Install streamlit (and ensure it’s available in PATH)
+# Use Bash explicitly and . (dot) instead of source for compatibility
 RUN pip install --no-cache-dir streamlit==1.32.2 && \
     echo 'export PATH="$PATH:/usr/local/bin"' >> ~/.bashrc && \
-    source ~/.bashrc
+    /bin/bash -c "source ~/.bashrc"
 
 # Copy application files (assuming they aren't already in the base image)
 COPY streamlit_app.py .
