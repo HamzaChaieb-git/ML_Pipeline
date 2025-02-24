@@ -4,19 +4,36 @@ import joblib
 import mlflow
 import os
 from typing import List, Dict
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Churn Prediction API")
 
-# Load the model from MLflow or local storage
-def load_model(model_path: str = "artifacts/models/model_v20250224_1032.joblib"):
+# Load the latest model from artifacts/models/
+def load_latest_model():
+    models_dir = os.path.join("artifacts", "models")
+    if not os.path.exists(models_dir):
+        raise HTTPException(status_code=500, detail=f"No models found in {models_dir}")
+    
+    model_files = [f for f in os.listdir(models_dir) if f.startswith("model_v") and f.endswith(".joblib")]
+    if not model_files:
+        raise HTTPException(status_code=500, detail=f"No model files found in {models_dir}")
+    
+    latest_model = max(model_files, key=lambda x: x.split("v")[1].split(".joblib")[0])
+    model_path = os.path.join(models_dir, latest_model)
     try:
+        logger.info(f"Loading model from {model_path}")
         model = joblib.load(model_path)
         return model
     except Exception as e:
+        logger.error(f"Failed to load model: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
 
-# Global model instance (loaded once on startup)
-model = load_model()
+# Load model on startup
+model = load_latest_model()
 
 # Define the expected input features (matching your training data)
 expected_features = [
@@ -35,7 +52,7 @@ def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
 
-@app.post("/predict", response_model=Dict[str, float])
+@app.post("/predict", response_model=Dict[str, List[float]])
 def predict(churn_data: Dict[str, List[float]]):
     """
     Predict churn probability for a list of customer features.
@@ -53,6 +70,7 @@ def predict(churn_data: Dict[str, List[float]]):
     }
     """
     try:
+        logger.info("Received prediction request")
         # Convert input to DataFrame
         input_df = pd.DataFrame(churn_data)
         
@@ -72,12 +90,14 @@ def predict(churn_data: Dict[str, List[float]]):
         # Make predictions
         predictions = model.predict_proba(input_df)[:, 1]  # Probability of churn (class 1)
         
-        # Return predictions as a dictionary
+        logger.info(f"Prediction successful: {predictions.tolist()}")
         return {"churn_probabilities": predictions.tolist()}
     
     except Exception as e:
+        logger.error(f"Prediction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting FastAPI server on 0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
