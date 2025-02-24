@@ -6,9 +6,9 @@ pipeline {
         DATA_IMAGE = 'hamzachaieb01/ml-data'
         MODEL_IMAGE = 'hamzachaieb01/ml-model'
         TAG = 'latest'
-        // Escape spaces in workspace path
         WORKSPACE_SAFE = sh(script: "echo '${WORKSPACE}' | sed 's/ /\\\\ /g'", returnStdout: true).trim()
-        MLFLOW_TRACKING_URI = 'http://localhost:5001'
+        // Update MLflow URI to use Docker container name instead of localhost
+        MLFLOW_TRACKING_URI = 'http://mlflow_server:5001'
         EXPERIMENT_NAME = 'churn_prediction'
         MLFLOW_DB_DIR = "${WORKSPACE_SAFE}/mlflow_data"
     }
@@ -37,7 +37,7 @@ pipeline {
                         chmod 777 "${MLFLOW_DB_DIR}"
                     """
                     
-                    // Start MLflow server with properly escaped paths
+                    // Start MLflow server with proper networking
                     sh """
                         docker run -d \
                             --name mlflow_server \
@@ -45,18 +45,18 @@ pipeline {
                             -p 5001:5001 \
                             -v "${MLFLOW_DB_DIR}":/mlflow_data \
                             ${BASE_IMAGE}:${TAG} \
-                            mlflow ui \
+                            mlflow server \
                             --backend-store-uri sqlite:///mlflow_data/mlflow.db \
+                            --default-artifact-root /mlflow_data/artifacts \
                             --host 0.0.0.0 \
                             --port 5001
                     """
                     
-                    // Wait for MLflow server to start
+                    // Wait for MLflow server and verify
                     sh '''
                         echo "Waiting for MLflow server to start..."
-                        sleep 10
+                        sleep 15
                         
-                        # Verify MLflow server is running
                         if ! docker ps | grep -q mlflow_server; then
                             echo "MLflow server failed to start"
                             docker logs mlflow_server
@@ -116,11 +116,11 @@ pipeline {
                             docker exec model_trainer mkdir -p /app/mlruns
                             docker exec model_trainer chmod -R 777 /app
                             
-                            # Run pipeline
+                            # Run pipeline with MLflow tracking
                             docker exec \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                                -e MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow_data/mlflow.db \
-                                model_trainer python -u -m main all > "${WORKSPACE_SAFE}/pipeline_output.txt" 2>&1
+                                -e MLFLOW_EXPERIMENT_NAME=${EXPERIMENT_NAME} \
+                                model_trainer python -u -m main all 2>&1 | tee "${WORKSPACE_SAFE}/pipeline_output.txt"
                             
                             # Save artifacts
                             docker exec model_trainer bash -c "cp -r /app/mlruns/* /mlflow_data/artifacts/ || true"
@@ -145,7 +145,7 @@ pipeline {
                 script {
                     sh '''
                         echo "=== Model Evaluation Results ==="
-                        docker exec model_trainer python -c "
+                        docker exec -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} model_trainer python -c "
 import mlflow
 import json
 
@@ -161,10 +161,16 @@ try:
             print(f'Accuracy: {metrics.get(\\"accuracy\\", \\"N/A\\")}')
             print(f'ROC AUC: {metrics.get(\\"roc_auc\\", \\"N/A\\")}')
             print(f'F1 Score: {metrics.get(\\"f1\\", \\"N/A\\")}')
+            print(f'Precision: {metrics.get(\\"precision\\", \\"N/A\\")}')
+            print(f'Recall: {metrics.get(\\"recall\\", \\"N/A\\")}')
             
             print(f'\\nRun Details:')
             print(f'Run ID: {latest_run.info.run_id}')
             print(f'Status: {latest_run.info.status}')
+        else:
+            print('No runs found for the experiment')
+    else:
+        print('Experiment not found')
 except Exception as e:
     print(f'Error retrieving metrics: {str(e)}')"
                     '''
@@ -193,10 +199,9 @@ except Exception as e:
             cleanWs(patterns: [[pattern: 'mlflow_data/**', type: 'EXCLUDE']])
         }
         success {
-            echo "Pipeline completed successfully. MLflow UI available at ${MLFLOW_TRACKING_URI}"
+            echo "Pipeline completed successfully. MLflow UI available at http://localhost:5001"
         }
         failure {
             echo "Pipeline failed. Check logs for details."
         }
     }
-}
