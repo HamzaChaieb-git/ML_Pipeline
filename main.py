@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Tuple, Dict, Any
 import sys
 import json
+import shutil
 
 from data_processing import prepare_data as process_data
 from model_training import train_model as train_xgb_model
@@ -44,7 +45,7 @@ def setup_enhanced_mlflow():
     else:
         experiment_id = mlflow.create_experiment(
             experiment_name,
-            artifact_location=os.path.abspath("./mlruns"),
+            artifact_location=os.path.abspath("./artifacts/mlruns"),
             tags=experiment_tags
         )
         print(f"Created new experiment '{experiment_name}' (ID: {experiment_id})")
@@ -76,7 +77,7 @@ def log_model_traced(model: Any, model_version: str) -> None:
         "model",
         registered_model_name=f"churn_model_v{model_version}"
     )
-    save_xgb_model(model, f"model_v{model_version}.joblib")
+    save_xgb_model(model, f"artifacts/models/model_v{model_version}.joblib")
 
 def log_system_info(run):
     """Log system and environment information within an MLflow run."""
@@ -99,11 +100,30 @@ def log_system_info(run):
         if value is not None:
             mlflow.log_param(f"system_{key}", str(value))
 
-    # Save detailed info as JSON artifact
-    with open("system_info.json", "w") as f:
+    # Save detailed info as JSON artifact in artifacts/system/
+    system_dir = os.path.join("artifacts", "system")
+    os.makedirs(system_dir, exist_ok=True)
+    system_path = os.path.join(system_dir, "system_info.json")
+    with open(system_path, "w") as f:
         json.dump(system_info, f, indent=4)
-    mlflow.log_artifact("system_info.json")
+    mlflow.log_artifact(system_path)
     print("✓ System information logged")
+
+def handle_error(run, e):
+    """Handle errors and log error information as an artifact."""
+    error_info = {
+        "error_type": str(type(e).__name__),
+        "error_message": str(e),
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # Save error info as JSON artifact in artifacts/errors/
+    errors_dir = os.path.join("artifacts", "errors")
+    os.makedirs(errors_dir, exist_ok=True)
+    error_path = os.path.join(errors_dir, "error_info.json")
+    with open(error_path, "w") as f:
+        json.dump(error_info, f, indent=4)
+    mlflow.log_artifact(error_path)
 
 def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
     """Execute the enhanced ML pipeline with comprehensive MLflow tracking and tracing."""
@@ -116,47 +136,53 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
         run_id = run.info.run_id
         print(f"MLflow Run ID: {run_id}")
 
-        # Log system information
-        log_system_info(run)
+        try:
+            # Log system information
+            log_system_info(run)
 
-        # Log input parameters
-        mlflow.log_params({
-            "train_file": train_file,
-            "test_file": test_file,
-            "model_version": model_version,
-            "pipeline_type": "enhanced"
-        })
+            # Log input parameters
+            mlflow.log_params({
+                "train_file": train_file,
+                "test_file": test_file,
+                "model_version": model_version,
+                "pipeline_type": "enhanced"
+            })
 
-        # Data preparation phase
-        print("📊 Preparing data...")
-        X_train, X_test, y_train, y_test = prepare_data_traced(train_file, test_file)
-        mlflow.log_metric("train_samples", len(X_train))
-        mlflow.log_metric("test_samples", len(X_test))
-        print("✅ Data preparation complete")
+            # Data preparation phase
+            print("📊 Preparing data...")
+            X_train, X_test, y_train, y_test = prepare_data_traced(train_file, test_file)
+            mlflow.log_metric("train_samples", len(X_train))
+            mlflow.log_metric("test_samples", len(X_test))
+            print("✅ Data preparation complete")
 
-        # Model training phase
-        print("🔧 Training model...")
-        model = train_model_traced(X_train, y_train, model_version=model_version)
-        print("✅ Model training complete")
+            # Model training phase
+            print("🔧 Training model...")
+            model = train_model_traced(X_train, y_train, model_version=model_version)
+            print("✅ Model training complete")
 
-        # Model evaluation phase
-        print("📈 Evaluating model...")
-        metrics = evaluate_model_traced(model, X_test, y_test)
-        for k, v in metrics.items():
-            mlflow.log_metric(f"metric.{k}", float(v))
-        print("✅ Model evaluation complete")
+            # Model evaluation phase
+            print("📈 Evaluating model...")
+            metrics = evaluate_model_traced(model, X_test, y_test)
+            for k, v in metrics.items():
+                mlflow.log_metric(f"metric.{k}", float(v))
+            print("✅ Model evaluation complete")
 
-        # Log model
-        log_model_traced(model, model_version)
+            # Log model
+            log_model_traced(model, model_version)
 
-        # Log completion
-        mlflow.log_param("completion_time", datetime.now().isoformat())
-        mlflow.set_tag("pipeline_status", "completed")
+            # Log completion
+            mlflow.log_param("completion_time", datetime.now().isoformat())
+            mlflow.set_tag("pipeline_status", "completed")
 
-        artifact_uri = run.info.artifact_uri
-        print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
-        print(f"📁 Artifacts saved to: {artifact_uri}")
-        print(f"🔍 MLflow UI: http://localhost:5001")
+            artifact_uri = run.info.artifact_uri
+            print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
+            print(f"📁 Artifacts saved to: {artifact_uri}")
+            print(f"🔍 MLflow UI: http://localhost:5001")
+
+        except Exception as e:
+            handle_error(run, e)
+            print(f"❌ Error in pipeline: {str(e)}")
+            raise
 
 def main() -> None:
     """Main function to run the enhanced pipeline."""
@@ -192,7 +218,7 @@ def main() -> None:
                 train_model_traced(X_train, y_train, model_version=datetime.now().strftime("%Y%m%d_%H%M"))
         elif args.action == "evaluate":
             with mlflow.start_run() as run:
-                model = load_model_traced() if hasattr(load_model, 'traced') else load_xgb_model()  # Adjust for tracing
+                model = load_model()  # Use the original load_model since tracing isn't needed here
                 _, X_test, _, y_test = prepare_data_traced(args.train_file, args.test_file)
                 evaluate_model_traced(model, X_test, y_test)
     except Exception as e:
