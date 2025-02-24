@@ -1,7 +1,12 @@
-"""Module for evaluating machine learning models."""
+"""Enhanced module for evaluating machine learning models with comprehensive MLflow tracking."""
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from sklearn.metrics import (
     classification_report, 
     confusion_matrix, 
@@ -10,22 +15,89 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     accuracy_score,
-    log_loss
+    log_loss,
+    roc_curve,
+    precision_recall_curve,
+    average_precision_score,
+    calinski_harabasz_score
 )
+from sklearn.calibration import calibration_curve
 import mlflow
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
+import json
+from datetime import datetime
+
+def create_evaluation_artifacts(y_test: np.ndarray, y_pred: np.ndarray, 
+                              y_pred_proba: np.ndarray, feature_names: List[str]) -> None:
+    """Create and log comprehensive evaluation artifacts."""
+    
+    # Create artifacts directory
+    artifact_dir = f"evaluation_artifacts_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    os.makedirs(artifact_dir, exist_ok=True)
+    
+    # 1. ROC and PR Curves (Interactive)
+    fpr, tpr, _ = roc_curve(y_test, y_pred_proba[:, 1])
+    precision, recall, _ = precision_recall_curve(y_test, y_pred_proba[:, 1])
+    avg_precision = average_precision_score(y_test, y_pred_proba[:, 1])
+    
+    fig = make_subplots(rows=1, cols=2, subplot_titles=('ROC Curve', 'Precision-Recall Curve'))
+    
+    fig.add_trace(
+        go.Scatter(x=fpr, y=tpr, name='ROC curve'),
+        row=1, col=1
+    )
+    fig.add_trace(
+        go.Scatter(x=[0, 1], y=[0, 1], name='Random', line=dict(dash='dash')),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=recall, y=precision, name=f'PR curve (AP={avg_precision:.2f})'),
+        row=1, col=2
+    )
+    
+    fig.update_layout(height=600, width=1200, title_text="Model Performance Curves")
+    fig.write_html(f"{artifact_dir}/performance_curves.html")
+    
+    # 2. Prediction Distribution
+    fig = px.histogram(
+        y_pred_proba[:, 1], 
+        nbins=50,
+        title="Prediction Probability Distribution",
+        labels={'value': 'Probability', 'count': 'Frequency'}
+    )
+    fig.write_html(f"{artifact_dir}/prediction_distribution.html")
+    
+    # 3. Confusion Matrix Heatmap
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title('Confusion Matrix Heatmap')
+    plt.savefig(f"{artifact_dir}/confusion_matrix.png")
+    plt.close()
+    
+    # 4. Calibration Plot
+    prob_true, prob_pred = calibration_curve(y_test, y_pred_proba[:, 1], n_bins=10)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=prob_pred, y=prob_true, mode='lines+markers', name='Calibration'))
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Perfect Calibration', line=dict(dash='dash')))
+    fig.update_layout(title='Model Calibration Plot', xaxis_title='Mean Predicted Probability', yaxis_title='True Probability')
+    fig.write_html(f"{artifact_dir}/calibration_plot.html")
+    
+    # Log all artifacts
+    mlflow.log_artifacts(artifact_dir)
 
 def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     """
-    Evaluate a model and log metrics to MLflow.
-
+    Enhanced model evaluation with comprehensive metrics and visualizations.
+    
     Args:
-        model: Trained model (e.g., XGBoost model).
-        X_test: Testing features (e.g., pandas DataFrame or numpy array).
-        y_test: Testing labels (e.g., pandas Series or numpy array).
-
+        model: Trained model
+        X_test: Testing features
+        y_test: Testing labels
+        
     Returns:
-        Dictionary containing all computed metrics.
+        Dictionary containing all computed metrics
     """
     # Get predictions
     y_pred = model.predict(X_test)
@@ -63,23 +135,38 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
         "true_positives": int(confusion[1, 1])
     })
     
+    # Add advanced metrics
+    metrics.update({
+        "balanced_accuracy": (metrics["recall_class_0"] + metrics["recall_class_1"]) / 2,
+        "precision_recall_ratio": metrics["precision"] / metrics["recall"] if metrics["recall"] > 0 else 0,
+        "false_positive_rate": metrics["false_positives"] / (metrics["false_positives"] + metrics["true_negatives"]),
+        "false_negative_rate": metrics["false_negatives"] / (metrics["false_negatives"] + metrics["true_positives"]),
+        "positive_predictive_value": metrics["precision"],
+        "negative_predictive_value": metrics["true_negatives"] / (metrics["true_negatives"] + metrics["false_negatives"])
+    })
+    
     # Log all metrics to MLflow
     mlflow.log_metrics(metrics)
     
-    # Save confusion matrix
-    confusion_df = pd.DataFrame(
-        confusion,
-        index=['Actual Negative', 'Actual Positive'],
-        columns=['Predicted Negative', 'Predicted Positive']
-    )
-    confusion_df.to_csv("confusion_matrix.csv")
+    # Create and log evaluation artifacts
+    if isinstance(X_test, pd.DataFrame):
+        feature_names = X_test.columns.tolist()
+    else:
+        feature_names = [f"feature_{i}" for i in range(X_test.shape[1])]
+    
+    create_evaluation_artifacts(y_test, y_pred, y_pred_proba, feature_names)
+    
+    # Save all metrics as JSON
+    with open("all_metrics.json", "w") as f:
+        json.dump(metrics, f, indent=4)
+    mlflow.log_artifact("all_metrics.json")
     
     # Print evaluation results
-    print("\nClassification Report:")
+    print("\nDetailed Classification Report:")
     print(classification_report(y_test, y_pred))
     print("\nConfusion Matrix:")
     print(confusion)
-    print("\nMetrics:")
+    print("\nKey Metrics:")
     for name, value in metrics.items():
         print(f"{name}: {value:.4f}")
     
