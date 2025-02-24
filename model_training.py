@@ -19,7 +19,7 @@ class TrainingArtifacts:
     def __init__(self, model_version: str):
         """Initialize training artifacts manager."""
         self.version = model_version
-        self.artifact_dir = f"training_artifacts_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        self.artifact_dir = os.path.join("artifacts", "training", f"{model_version}")
         os.makedirs(self.artifact_dir, exist_ok=True)
 
     def log_data_stats(self, X: pd.DataFrame, y: np.ndarray) -> None:
@@ -43,9 +43,9 @@ class TrainingArtifacts:
             }
         }
         
-        with open(f"{self.artifact_dir}/data_statistics.json", "w") as f:
+        with open(os.path.join(self.artifact_dir, "data_statistics.json"), "w") as f:
             json.dump(stats, f, indent=4)
-        mlflow.log_artifact(f"{self.artifact_dir}/data_statistics.json")
+        mlflow.log_artifact(os.path.join(self.artifact_dir, "data_statistics.json"))
 
     def create_correlation_matrix(self, X: pd.DataFrame) -> None:
         """Create and log correlation matrix visualizations."""
@@ -59,17 +59,17 @@ class TrainingArtifacts:
             sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, fmt='.2f')
             plt.title('Feature Correlation Matrix')
             plt.tight_layout()
-            plt.savefig(f"{self.artifact_dir}/correlation_matrix.png")
+            plt.savefig(os.path.join(self.artifact_dir, "correlation_matrix.png"))
             plt.close()
             
             # Interactive correlation heatmap
             fig = px.imshow(corr_matrix,
                            labels=dict(color="Correlation"),
                            title="Interactive Feature Correlation Matrix")
-            fig.write_html(f"{self.artifact_dir}/correlation_matrix.html")
+            fig.write_html(os.path.join(self.artifact_dir, "correlation_matrix.html"))
             
-            mlflow.log_artifact(f"{self.artifact_dir}/correlation_matrix.png")
-            mlflow.log_artifact(f"{self.artifact_dir}/correlation_matrix.html")
+            mlflow.log_artifact(os.path.join(self.artifact_dir, "correlation_matrix.png"))
+            mlflow.log_artifact(os.path.join(self.artifact_dir, "correlation_matrix.html"))
 
     def plot_feature_distributions(self, X: pd.DataFrame) -> None:
         """Create and log feature distribution plots."""
@@ -78,7 +78,7 @@ class TrainingArtifacts:
         # Create distribution plots for numeric features
         for col in numeric_cols:
             fig = px.histogram(X, x=col, title=f'{col} Distribution')
-            fig.write_html(f"{self.artifact_dir}/dist_{col}.html")
+            fig.write_html(os.path.join(self.artifact_dir, f"dist_{col}.html"))
         
         mlflow.log_artifacts(self.artifact_dir)
 
@@ -104,8 +104,8 @@ class TrainingArtifacts:
             yaxis_title='Metric Value',
             height=600
         )
-        fig.write_html(f"{self.artifact_dir}/training_progress.html")
-        mlflow.log_artifact(f"{self.artifact_dir}/training_progress.html")
+        fig.write_html(os.path.join(self.artifact_dir, "training_progress.html"))
+        mlflow.log_artifact(os.path.join(self.artifact_dir, "training_progress.html"))
 
 def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: str = "1.0.0") -> xgb.XGBClassifier:
     """
@@ -172,9 +172,9 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
     }
     
     mlflow.log_params(params)
-    with open(f"{artifacts.artifact_dir}/parameter_descriptions.json", "w") as f:
+    with open(os.path.join(artifacts.artifact_dir, "parameter_descriptions.json"), "w") as f:
         json.dump(param_desc, f, indent=4)
-    mlflow.log_artifact(f"{artifacts.artifact_dir}/parameter_descriptions.json")
+    mlflow.log_artifact(os.path.join(artifacts.artifact_dir, "parameter_descriptions.json"))
 
     # Initialize model
     model = xgb.XGBClassifier(**params)
@@ -214,17 +214,16 @@ def train_model(X_train: Union[pd.DataFrame, Any], y_train: Any, model_version: 
         plt.title('Feature Importance')
         plt.xlabel('Importance Score')
         plt.tight_layout()
-        plt.savefig(f"{artifacts.artifact_dir}/feature_importance.png")
+        plt.savefig(os.path.join(artifacts.artifact_dir, "feature_importance.png"))
         plt.close()
 
         # Interactive feature importance plot
         fig = px.bar(importance_df, x='importance', y='feature', orientation='h',
                     title='Feature Importance (Interactive)')
-        fig.write_html(f"{artifacts.artifact_dir}/feature_importance.html")
+        fig.write_html(os.path.join(artifacts.artifact_dir, "feature_importance.html"))
         
-        # Log feature importance values
-        mlflow.log_artifact(f"{artifacts.artifact_dir}/feature_importance.png")
-        mlflow.log_artifact(f"{artifacts.artifact_dir}/feature_importance.html")
+        mlflow.log_artifact(os.path.join(artifacts.artifact_dir, "feature_importance.png"))
+        mlflow.log_artifact(os.path.join(artifacts.artifact_dir, "feature_importance.html"))
         for feature, importance in zip(importance_df['feature'], importance_df['importance']):
             mlflow.log_metric(f"feature_importance_{feature}", importance)
 
