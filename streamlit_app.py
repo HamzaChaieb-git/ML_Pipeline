@@ -6,10 +6,10 @@ import os
 import plotly.graph_objects as go
 from datetime import datetime
 
-# Set page configuration for a clean, centered layout with light theme
+# Set page configuration as the first Streamlit command for a clean, centered layout
 st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="collapsed")
 
-# Custom CSS for a professional, modern light-themed design
+# Custom CSS for a professional, modern light-themed design with +/- buttons
 st.markdown("""
     <style>
     /* Light background with subtle gradient */
@@ -23,16 +23,11 @@ st.markdown("""
     .main {
         padding: 40px;
         width: 100%;
-        max-width: 1000px;
+        max-width: 800px;
         margin: 0 auto;
         background-color: #ffffff;
-        border-radius: 15px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-        animation: fadeIn 1s ease-in;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
     }
 
     /* Header styling with blue text */
@@ -60,15 +55,16 @@ st.markdown("""
         font-size: 16px;
         text-align: center;
         font-family: 'Arial', sans-serif;
+        line-height: 1.6;
     }
 
-    /* Input fields and select boxes with light theme */
+    /* Input fields and select boxes with black theme and +/- buttons */
     .stNumberInput, .stSelectbox {
-        background-color: #f9f9f9;
+        background-color: #1a1a1a;
         border: 2px solid #e0e0e0;
-        border-radius: 10px;
+        border-radius: 8px;
         padding: 12px;
-        color: #333;
+        color: #ffffff;
         margin: 10px 0;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
         font-family: 'Arial', sans-serif;
@@ -76,9 +72,10 @@ st.markdown("""
     }
     .stNumberInput > div > input, .stSelectbox > div > select {
         background-color: transparent !important;
-        color: #333 !important;
+        color: #ffffff !important;
         font-size: 16px;
         font-family: 'Arial', sans-serif;
+        text-align: center;
     }
     .stNumberInput > div > input:focus, .stSelectbox > div > select:focus {
         outline: none;
@@ -86,12 +83,39 @@ st.markdown("""
         box-shadow: 0 0 8px #4a90e2;
         transition: border-color 0.3s, box-shadow 0.3s;
     }
+    /* Style for +/- buttons to match your screenshot */
+    .stNumberInput > div > div > button {
+        background-color: #4a90e2;
+        color: #ffffff;
+        border: none;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        font-size: 16px;
+        margin: 0 5px;
+        box-shadow: 0 2px 4px rgba(74, 144, 226, 0.2);
+        transition: background-color 0.3s, transform 0.2s;
+    }
+    .stNumberInput > div > div > button:hover {
+        background-color: #357ABD;
+        transform: scale(1.1);
+    }
+
+    /* Selectbox dropdown styling */
+    .stSelectbox > div > select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        background: url('data:image/svg+xml;utf8,<svg fill="%23333" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>') no-repeat right 10px center;
+        padding-right: 40px;
+        color: #ffffff;
+    }
 
     /* Button styling with blue theme */
     .stButton>button {
         background-color: #4a90e2;
         color: white;
-        border-radius: 10px;
+        border-radius: 8px;
         padding: 14px 30px;
         font-size: 18px;
         border: none;
@@ -112,7 +136,7 @@ st.markdown("""
         background-color: #dff0d8;
         color: #2d6a4f;
         padding: 12px;
-        border-radius: 10px;
+        border-radius: 8px;
         text-align: center;
         margin-top: 20px;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
@@ -125,7 +149,7 @@ st.markdown("""
         background-color: #f2dede;
         color: #a4161a;
         padding: 12px;
-        border-radius: 10px;
+        border-radius: 8px;
         text-align: center;
         margin-top: 20px;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
@@ -135,7 +159,7 @@ st.markdown("""
 
     /* Chart styling for gauge */
     .stPlotlyChart {
-        border-radius: 10px;
+        border-radius: 8px;
         overflow: hidden;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         margin-top: 30px;
@@ -215,11 +239,11 @@ with st.form(key="churn_form", clear_on_submit=False):
             st.markdown(f'<div class="stSuccess">Churn Probability: {prediction:.4f}</div>', unsafe_allow_html=True)
             st.markdown('<div class="stText">Note: A higher probability indicates a higher likelihood of churn.</div>', unsafe_allow_html=True)
             
-            # KPI-style gauge chart for light theme
+            # KPI-style gauge chart matching your screenshot
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=prediction * 100,
-                title={'text': "Churn Probability (%)", 'font': {'size': 18, 'color': '#333'}},
+                title={'text': "Churn Probability (%)", 'font': {'size': 16, 'color': '#333'}},
                 gauge={'axis': {'range': [0, 100], 'tickcolor': '#666', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#666'}},
                        'bar': {'color': "#4682b4"},  # Blue bar
                        'steps': [
@@ -251,7 +275,7 @@ with st.form(key="churn_form", clear_on_submit=False):
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=prediction * 100,
-                    title={'text': "Churn Probability (%)", 'font': {'size': 18, 'color': '#333'}},
+                    title={'text': "Churn Probability (%)", 'font': {'size': 16, 'color': '#333'}},
                     gauge={'axis': {'range': [0, 100], 'tickcolor': '#666', 'tickwidth': 1, 'tickfont': {'size': 12, 'color': '#666'}},
                            'bar': {'color': "#4682b4"},
                            'steps': [
