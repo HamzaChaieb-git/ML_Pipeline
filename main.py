@@ -73,7 +73,8 @@ def log_system_info():
     
     # Log as parameters
     for key, value in system_info.items():
-        mlflow.log_param(f"system_{key}", value)
+        if value is not None:  # Only log non-None values
+            mlflow.log_param(f"system_{key}", str(value))
     
     # Save detailed info as JSON artifact
     with open("system_info.json", "w") as f:
@@ -90,17 +91,17 @@ def create_run_report(metrics: Dict, model_version: str, stage: str) -> None:
             "model_version": model_version,
             "stage": stage,
             "metrics_summary": {
-                "accuracy": metrics.get("accuracy", 0),
-                "precision": metrics.get("precision", 0),
-                "recall": metrics.get("recall", 0),
-                "f1": metrics.get("f1", 0),
-                "roc_auc": metrics.get("roc_auc", 0)
+                "accuracy": float(metrics.get("accuracy", 0)),
+                "precision": float(metrics.get("precision", 0)),
+                "recall": float(metrics.get("recall", 0)),
+                "f1": float(metrics.get("f1", 0)),
+                "roc_auc": float(metrics.get("roc_auc", 0))
             },
             "production_readiness": {
-                "accuracy_threshold_met": metrics.get("accuracy", 0) > 0.85,
-                "roc_auc_threshold_met": metrics.get("roc_auc", 0) > 0.85,
-                "precision_threshold_met": metrics.get("precision", 0) > 0.80,
-                "recall_threshold_met": metrics.get("recall", 0) > 0.80
+                "accuracy_threshold_met": str(metrics.get("accuracy", 0) > 0.85),
+                "roc_auc_threshold_met": str(metrics.get("roc_auc", 0) > 0.85),
+                "precision_threshold_met": str(metrics.get("precision", 0) > 0.80),
+                "recall_threshold_met": str(metrics.get("recall", 0) > 0.80)
             }
         }
     }
@@ -216,17 +217,18 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
                 
                 # Verify artifacts were logged
                 artifact_dir = artifact_uri.replace("file://", "") if artifact_uri.startswith("file://") else artifact_uri
-                verify_artifacts_logged(artifact_dir)
+                artifacts_verified = verify_artifacts_logged(artifact_dir)
                 
                 # Log final run status
                 run_info = {
                     "status": "completed",
                     "completion_time": datetime.now().isoformat(),
                     "model_stage": stage,
-                    "is_production_ready": is_production_ready,
+                    "is_production_ready": str(is_production_ready),
                     "model_version": model_version,
                     "mlflow_run_id": run_id,
-                    "artifact_uri": artifact_uri
+                    "artifact_uri": artifact_uri,
+                    "artifacts_verified": str(artifacts_verified)
                 }
                 
                 with open("run_info.json", "w") as f:
@@ -244,7 +246,7 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
                 
         except Exception as e:
             error_info = {
-                "error_type": type(e).__name__,
+                "error_type": str(type(e).__name__),
                 "error_message": str(e),
                 "timestamp": datetime.now().isoformat()
             }
