@@ -12,28 +12,39 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Churn Prediction API")
 
+# Initialize model variable
+model = None
+
 # Load the latest model from artifacts/models/
 def load_latest_model():
-    models_dir = os.path.join("artifacts", "models")
-    if not os.path.exists(models_dir):
-        raise HTTPException(status_code=500, detail=f"No models found in {models_dir}")
-    
-    model_files = [f for f in os.listdir(models_dir) if f.startswith("model_v") and f.endswith(".joblib")]
-    if not model_files:
-        raise HTTPException(status_code=500, detail=f"No model files found in {models_dir}")
-    
-    latest_model = max(model_files, key=lambda x: x.split("v")[1].split(".joblib")[0])
-    model_path = os.path.join(models_dir, latest_model)
     try:
+        models_dir = os.path.join("artifacts", "models")
+        if not os.path.exists(models_dir):
+            logger.warning(f"Models directory not found: {models_dir}")
+            return None
+        
+        model_files = [f for f in os.listdir(models_dir) if f.startswith("model_v") and f.endswith(".joblib")]
+        if not model_files:
+            logger.warning(f"No model files found in {models_dir}")
+            return None
+        
+        latest_model = max(model_files, key=lambda x: x.split("v")[1].split(".joblib")[0])
+        model_path = os.path.join(models_dir, latest_model)
+        
         logger.info(f"Loading model from {model_path}")
         model = joblib.load(model_path)
+        logger.info(f"Model loaded successfully: {latest_model}")
         return model
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+        return None
 
-# Load model on startup
-model = load_latest_model()
+# Try to load model on startup but don't fail if not available
+try:
+    model = load_latest_model()
+except Exception as e:
+    logger.error(f"Error during initial model loading: {str(e)}")
+    # Don't fail startup if model can't be loaded - we'll check in the endpoints
 
 # Define the expected input features (matching your training data)
 expected_features = [
@@ -47,10 +58,30 @@ expected_features = [
     "Voice mail plan"
 ]
 
+@app.get("/")
+def root():
+    """Root endpoint."""
+    return {
+        "status": "online",
+        "service": "Churn Prediction API",
+        "model_loaded": model is not None
+    }
+
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
+    # Simple health check that always returns healthy
+    # This is separate from model status to allow the container to be considered healthy
+    # even if the model hasn't been loaded yet
     return {"status": "healthy"}
+
+@app.get("/model-status")
+def model_status():
+    """Model status endpoint."""
+    return {
+        "model_loaded": model is not None,
+        "features": expected_features if model is not None else []
+    }
 
 @app.post("/predict", response_model=Dict[str, List[float]])
 def predict(churn_data: Dict[str, List[float]]):
@@ -69,6 +100,14 @@ def predict(churn_data: Dict[str, List[float]]):
         "Voice mail plan": [0, 1, ...]  # 0 for No, 1 for Yes
     }
     """
+    # Check if model is loaded
+    if model is None:
+        # Try to load it one more time
+        global model
+        model = load_latest_model()
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model not loaded. Service unavailable.")
+    
     try:
         logger.info("Received prediction request")
         # Convert input to DataFrame

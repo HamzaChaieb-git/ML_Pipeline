@@ -14,10 +14,10 @@ services:
       - app_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 10s
+      interval: 10s      # Reduced from 30s
+      timeout: 5s        # Reduced from 10s
+      retries: 3         # Reduced from 5
+      start_period: 15s  # Increased from 10s to give app more time to start
 
   streamlit:
     build:
@@ -47,9 +47,9 @@ services:
       - app_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+      interval: 10s
+      timeout: 5s
+      retries: 3
       start_period: 15s
 
   pipeline:
