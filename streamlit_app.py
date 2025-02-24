@@ -7,7 +7,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import json
-from streamlit_extras.lets_plot import lets_plot
 
 # Set page configuration as the first Streamlit command
 st.set_page_config(page_title="Churn Prediction Dashboard", layout="centered", initial_sidebar_state="auto")
@@ -164,7 +163,7 @@ with st.form(key="churn_form", clear_on_submit=False):
         total_day_minutes = st.number_input("Total Day Minutes", min_value=0.0, value=120.50, format="%.2f", 
                                           help="Daily minutes of usage (hover for details)", 
                                           key="day_minutes")
-        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, value=5, 
+        customer_service_calls = st.number_input("Customer Service Calls", min_value=0, value=10, 
                                                help="Number of customer service interactions (hover for details)", 
                                                key="service_calls")
         international_plan = st.selectbox("International Plan", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", 
