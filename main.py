@@ -1,4 +1,4 @@
-"""Enhanced main module for running the ML pipeline with comprehensive MLflow tracking."""
+"""Enhanced main module for running the ML pipeline with MLflow tracking."""
 
 import argparse
 import os
@@ -16,8 +16,8 @@ import psutil
 
 def setup_enhanced_mlflow():
     """Setup enhanced MLflow tracking with custom configuration."""
-    # Set up MLflow tracking URI
-    tracking_uri = "sqlite:///enhanced_mlflow.db"
+    # Set up MLflow tracking URI to match existing configuration
+    tracking_uri = "sqlite:///mlflow.db"
     mlflow.set_tracking_uri(tracking_uri)
     print(f"MLflow tracking URI: {tracking_uri}")
     
@@ -237,7 +237,7 @@ def run_enhanced_pipeline(train_file: str, test_file: str) -> None:
                 
                 print(f"✨ Pipeline completed successfully - Model Version: {model_version}")
                 print(f"📁 Artifacts saved to: {artifact_uri}")
-                print(f"🔍 MLflow UI: http://localhost:5000")
+                print(f"🔍 MLflow UI: http://localhost:5001")
                 
             except Exception as e:
                 print(f"⚠️ Warning: Could not update model stage: {str(e)}")
