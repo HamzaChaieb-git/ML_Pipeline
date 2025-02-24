@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Churn Prediction API")
 
-# Initialize model variable
+# Initialize the model variable at the module level
 model = None
 
 # Load the latest model from artifacts/models/
@@ -32,19 +32,19 @@ def load_latest_model():
         model_path = os.path.join(models_dir, latest_model)
         
         logger.info(f"Loading model from {model_path}")
-        model = joblib.load(model_path)
+        loaded_model = joblib.load(model_path)
         logger.info(f"Model loaded successfully: {latest_model}")
-        return model
+        return loaded_model
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
         return None
 
-# Try to load model on startup but don't fail if not available
+# Try to load model on startup
 try:
     model = load_latest_model()
+    logger.info(f"Initial model loading status: {'Success' if model else 'Failed'}")
 except Exception as e:
     logger.error(f"Error during initial model loading: {str(e)}")
-    # Don't fail startup if model can't be loaded - we'll check in the endpoints
 
 # Define the expected input features (matching your training data)
 expected_features = [
@@ -102,7 +102,7 @@ def predict(churn_data: Dict[str, List[float]]):
     """
     # Check if model is loaded
     if model is None:
-        # Try to load it one more time
+        # Try to reload the model
         global model
         model = load_latest_model()
         if model is None:
