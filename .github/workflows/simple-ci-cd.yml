@@ -1,9 +1,11 @@
-name: Simple CI/CD Pipeline for ML Project
+name: ML Pipeline CI/CD Workflow
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
@@ -17,21 +19,30 @@ jobs:
       - name: Build Docker images
         run: |
           docker compose build
-      
+
+      - name: Verify FastAPI image
+        run: |
+          # Test running the FastAPI container standalone with verbose output
+          docker run --name test-fastapi -d ml_pipeline-fastapi
+          sleep 5
+          docker logs test-fastapi
+          docker rm -f test-fastapi
+
       - name: Run Docker Compose
         run: |
           docker compose up -d
-          # Give services more time to initialize
-          echo "Waiting for services to start (45 seconds)..."
-          sleep 45
+          echo "Waiting for services to start (30 seconds)..."
+          sleep 30
           # Display container status for debugging
           echo "Container status:"
           docker compose ps
-      
-      - name: Debug container logs if needed
+          
+      - name: Debug container logs
         run: |
-          echo "FastAPI container logs:"
+          echo "=== FastAPI container logs ==="
           docker compose logs fastapi
+          echo "=== MLflow container logs ==="
+          docker compose logs mlflow
       
       - name: Test FastAPI
         run: |
@@ -45,6 +56,7 @@ jobs:
             
             if [ $i -eq 5 ]; then
               echo "FastAPI health check failed after 5 attempts"
+              docker compose logs fastapi
               exit 1
             fi
             
@@ -54,22 +66,17 @@ jobs:
       
       - name: Check Streamlit logs
         run: |
-          if docker compose logs streamlit | grep -q "Streamlit server is running"; then
+          if docker compose logs streamlit | grep -q "Streamlit server is running" || docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
             echo "Streamlit is running properly"
           else
-            echo "Checking for alternative Streamlit startup message..."
-            if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
-              echo "Streamlit is running properly (alternative message found)"
-            else
-              echo "Streamlit server check failed, showing logs:"
-              docker compose logs streamlit
-              exit 1
-            fi
+            echo "Streamlit server check failed, showing logs:"
+            docker compose logs streamlit
+            exit 1
           fi
       
       - name: Check MLflow logs
         run: |
-          if docker compose logs mlflow | grep -q "Serving MLflow UI at"; then
+          if docker compose logs mlflow | grep -q "Serving MLflow UI at" || docker compose logs mlflow | grep -q "Running on http"; then
             echo "MLflow is running properly"
           else
             echo "MLflow server check failed, showing logs:"
