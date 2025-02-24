@@ -41,6 +41,8 @@ jobs:
           docker compose logs fastapi
           echo "=== MLflow container logs ==="
           docker compose logs mlflow
+          echo "=== Pipeline container logs ==="
+          docker compose logs pipeline
       
       - name: Test FastAPI
         run: |
@@ -79,20 +81,18 @@ jobs:
             exit 1
           fi
       
-      - name: Check Pipeline container status
+      - name: Verify Pipeline execution
         run: |
-          echo "Checking pipeline container status..."
-          if docker compose ps | grep -q "ml_pipeline-pipeline-1.*Up"; then
-            echo "Pipeline container is running"
+          echo "Checking pipeline execution status..."
+          PIPELINE_STATUS=$(docker inspect ml_pipeline-pipeline-1 --format='{{.State.ExitCode}}')
+          if [ "$PIPELINE_STATUS" -eq 0 ]; then
+            echo "Pipeline executed successfully"
+            docker compose logs pipeline
           else
-            echo "Pipeline container is not running, showing logs:"
+            echo "Pipeline execution failed with exit code $PIPELINE_STATUS, showing logs:"
             docker compose logs pipeline
             exit 1
           fi
-      
-      - name: Run ML Pipeline
-        run: |
-          docker compose run --rm pipeline python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all
       
       - name: Stop Docker Compose
         if: always()
