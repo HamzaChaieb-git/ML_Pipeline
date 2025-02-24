@@ -32,8 +32,8 @@ def create_evaluation_artifacts(y_test: np.ndarray, y_pred: np.ndarray,
                               y_pred_proba: np.ndarray, feature_names: List[str]) -> None:
     """Create and log comprehensive evaluation artifacts."""
     
-    # Create artifacts directory
-    artifact_dir = f"evaluation_artifacts_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    # Create artifacts directory under artifacts/evaluation/
+    artifact_dir = os.path.join("artifacts", "evaluation", datetime.now().strftime('%Y%m%d_%H%M'))
     os.makedirs(artifact_dir, exist_ok=True)
     
     # 1. ROC and PR Curves (Interactive)
@@ -58,7 +58,7 @@ def create_evaluation_artifacts(y_test: np.ndarray, y_pred: np.ndarray,
     )
     
     fig.update_layout(height=600, width=1200, title_text="Model Performance Curves")
-    fig.write_html(f"{artifact_dir}/performance_curves.html")
+    fig.write_html(os.path.join(artifact_dir, "performance_curves.html"))
     
     # 2. Prediction Distribution
     fig = px.histogram(
@@ -67,14 +67,14 @@ def create_evaluation_artifacts(y_test: np.ndarray, y_pred: np.ndarray,
         title="Prediction Probability Distribution",
         labels={'value': 'Probability', 'count': 'Frequency'}
     )
-    fig.write_html(f"{artifact_dir}/prediction_distribution.html")
+    fig.write_html(os.path.join(artifact_dir, "prediction_distribution.html"))
     
     # 3. Confusion Matrix Heatmap
     cm = confusion_matrix(y_test, y_pred)
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
     plt.title('Confusion Matrix Heatmap')
-    plt.savefig(f"{artifact_dir}/confusion_matrix.png")
+    plt.savefig(os.path.join(artifact_dir, "confusion_matrix.png"))
     plt.close()
     
     # 4. Calibration Plot
@@ -83,7 +83,7 @@ def create_evaluation_artifacts(y_test: np.ndarray, y_pred: np.ndarray,
     fig.add_trace(go.Scatter(x=prob_pred, y=prob_true, mode='lines+markers', name='Calibration'))
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Perfect Calibration', line=dict(dash='dash')))
     fig.update_layout(title='Model Calibration Plot', xaxis_title='Mean Predicted Probability', yaxis_title='True Probability')
-    fig.write_html(f"{artifact_dir}/calibration_plot.html")
+    fig.write_html(os.path.join(artifact_dir, "calibration_plot.html"))
     
     # Log all artifacts
     mlflow.log_artifacts(artifact_dir)
@@ -126,9 +126,9 @@ def create_summary_report(metrics: Dict[str, float], artifact_dir: str) -> None:
         "model_recommendation": "production" if metrics["accuracy"] > 0.85 and metrics["roc_auc"] > 0.85 else "staging"
     }
     
-    with open(f"{artifact_dir}/evaluation_summary.json", "w") as f:
+    with open(os.path.join(artifact_dir, "evaluation_summary.json"), "w") as f:
         json.dump(report, f, indent=4)
-    mlflow.log_artifact(f"{artifact_dir}/evaluation_summary.json")
+    mlflow.log_artifact(os.path.join(artifact_dir, "evaluation_summary.json"))
 
 def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     """
@@ -142,8 +142,8 @@ def evaluate_model(model: Any, X_test: Any, y_test: Any) -> Dict[str, float]:
     Returns:
         Dictionary containing all computed metrics
     """
-    # Create artifacts directory
-    artifact_dir = f"model_evaluation_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    # Create artifacts directory under artifacts/evaluation/
+    artifact_dir = os.path.join("artifacts", "evaluation", datetime.now().strftime('%Y%m%d_%H%M'))
     os.makedirs(artifact_dir, exist_ok=True)
 
     # Get predictions
