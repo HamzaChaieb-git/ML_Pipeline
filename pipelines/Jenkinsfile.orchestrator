@@ -2,13 +2,10 @@ pipeline {
     agent any
     
     environment {
-        BASE_IMAGE = 'hamzachaieb01/ml-pipeline'
-        DATA_IMAGE = 'hamzachaieb01/ml-data'
-        MODEL_IMAGE = 'hamzachaieb01/ml-model'
+        BASE_IMAGE = 'hamzachaieb01/dockerfinal'
         TAG = 'latest'
-        WORKSPACE_SAFE = sh(script: "echo '${WORKSPACE}' | sed 's/ /\\\\ /g'", returnStdout: true).trim()
         MLFLOW_TRACKING_URI = 'http://mlflow_server:5001'
-        EXPERIMENT_NAME = 'churn_prediction'
+        MLFLOW_EXPERIMENT_NAME = 'churn_prediction'
         MLFLOW_DB_DIR = "${WORKSPACE_SAFE}/mlflow_data"
     }
     
@@ -21,25 +18,16 @@ pipeline {
         stage('Setup MLflow') {
             steps {
                 script {
-                    // Cleanup without sudo
                     sh '''
-                        docker rm -f mlflow_server model_trainer data_container || true
+                        docker rm -f mlflow_server model_trainer || true
                         docker network rm mlflow_net || true
                         rm -rf ${WORKSPACE}/mlflow_data || true
-                    '''
-                    
-                    // Setup directories
-                    sh """
+                        
                         docker network create mlflow_net || true
                         
-                        # Create fresh mlflow directories
                         mkdir -p "${MLFLOW_DB_DIR}"/{database,artifacts}
                         chmod -R 777 "${MLFLOW_DB_DIR}"
-                    """
-                    
-                    // Initialize MLflow environment
-                    sh """
-                        # Start MLflow server with database initialization
+                        
                         docker run -d \
                             --name mlflow_server \
                             --network mlflow_net \
@@ -57,32 +45,7 @@ pipeline {
                                     --port 5001 \
                                     --workers 1
                             "
-                    """
-                    
-                    // Verify MLflow
-                    sh '''
-                        echo "Waiting for MLflow server..."
                         sleep 15
-                        
-                        MAX_RETRIES=5
-                        RETRY_COUNT=0
-                        
-                        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-                            if curl -s http://localhost:5001/api/2.0/mlflow/experiments/list > /dev/null; then
-                                echo "MLflow server is ready"
-                                break
-                            fi
-                            
-                            RETRY_COUNT=$((RETRY_COUNT + 1))
-                            if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-                                echo "MLflow server failed to start. Logs:"
-                                docker logs mlflow_server
-                                exit 1
-                            fi
-                            
-                            echo "Retry $RETRY_COUNT of $MAX_RETRIES. Waiting 5 seconds..."
-                            sleep 5
-                        done
                     '''
                 }
             }
@@ -92,58 +55,37 @@ pipeline {
             steps {
                 script {
                     try {
-                        // Setup containers
                         sh """
-                            # Setup data container
-                            docker create --name data_container \
-                                --network mlflow_net \
-                                ${DATA_IMAGE}:${TAG}
-                            
-                            # Setup model trainer
                             docker run -d \
                                 --name model_trainer \
                                 --network mlflow_net \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                                -e MLFLOW_EXPERIMENT_NAME=${EXPERIMENT_NAME} \
+                                -e MLFLOW_EXPERIMENT_NAME=${MLFLOW_EXPERIMENT_NAME} \
                                 -v "${MLFLOW_DB_DIR}/database":/mlflow_data/database \
                                 -v "${MLFLOW_DB_DIR}/artifacts":/mlflow_data/artifacts \
-                                --volumes-from data_container \
                                 ${BASE_IMAGE}:${TAG} \
                                 tail -f /dev/null
                             
-                            # Setup permissions
                             docker exec model_trainer bash -c "
                                 mkdir -p /app/mlruns && \
                                 chmod -R 777 /app /mlflow_data
                             "
-                        """
-                        
-                        // Initialize MLflow experiment and run training
-                        sh '''
+                            
                             docker exec \
                                 -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-                                -e MLFLOW_EXPERIMENT_NAME=${EXPERIMENT_NAME} \
+                                -e MLFLOW_EXPERIMENT_NAME=${MLFLOW_EXPERIMENT_NAME} \
                                 model_trainer \
                                 python -c "
 import mlflow
 import os
 import sys
 
-# Setup MLflow
 mlflow.set_experiment(os.getenv('MLFLOW_EXPERIMENT_NAME', 'churn_prediction'))
-
-# Run main script within MLflow
 with mlflow.start_run():
     sys.path.append('/app')
     import main
-    main.run_full_pipeline('churn-bigml-80.csv', 'churn-bigml-20.csv')
+    main.run_full_pipeline('data/churn-bigml-80.csv', 'data/churn-bigml-20.csv')
 " 2>&1 | tee ${WORKSPACE}/training.log
-                        '''
-                        
-                        // Save and push model
-                        sh """
-                            docker commit model_trainer ${MODEL_IMAGE}:${TAG}-mlflow
-                            docker push ${MODEL_IMAGE}:${TAG}-mlflow
                         """
                     } catch (Exception e) {
                         echo "Training failed: ${e.message}"
@@ -169,7 +111,7 @@ from mlflow.tracking import MlflowClient
 
 try:
     client = MlflowClient()
-    experiment = client.get_experiment_by_name('${EXPERIMENT_NAME}')
+    experiment = client.get_experiment_by_name('${MLFLOW_EXPERIMENT_NAME}')
     
     if experiment:
         runs = client.search_runs(experiment_ids=[experiment.experiment_id])
@@ -197,7 +139,7 @@ except Exception as e:
     post {
         always {
             sh """
-                docker rm -f model_trainer data_container || true
+                docker rm -f model_trainer || true
                 docker logout || true
                 docker system prune -f || true
                 
@@ -205,7 +147,6 @@ except Exception as e:
                     cd "${WORKSPACE_SAFE}" && tar -czf mlflow_artifacts.tar.gz -C "${MLFLOW_DB_DIR}" . || true
                 fi
             """
-            
             archiveArtifacts artifacts: 'mlflow_artifacts.tar.gz,training.log', allowEmptyArchive: true
         }
         success {
