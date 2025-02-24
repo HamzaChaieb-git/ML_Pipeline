@@ -46,6 +46,20 @@ services:
     networks:
       - app_network
 
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+    volumes:
+      - /home/hamza/hamza-chaieb-4DS1-ml_project:/app  # Mount the entire project root for all files
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/artifacts:/app/artifacts  # Specific mount for artifacts
+      - /home/hamza/hamza-chaieb-4DS1-ml_project/mlflow.db:/app/mlflow.db  # Specific mount for MLflow DB
+    depends_on:
+      mlflow:
+        condition: service_started
+    networks:
+      - app_network
+
 networks:
   app_network:
     driver: bridge

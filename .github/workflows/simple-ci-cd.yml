@@ -1,0 +1,47 @@
+name: Simple CI/CD Pipeline for ML Project
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker images
+        run: |
+          docker compose build
+
+      - name: Run Docker Compose
+        run: |
+          docker compose up -d
+          sleep 30
+
+      - name: Test FastAPI
+        run: |
+          curl -s http://localhost:8000/health | grep -q "healthy" || exit 1
+
+      - name: Check Streamlit logs
+        run: |
+          docker compose logs streamlit | grep -q "Streamlit server is running" || exit 1
+
+      - name: Check MLflow logs
+        run: |
+          docker compose logs mlflow | grep -q "Serving MLflow UI at http://0.0.0.0:5001" || exit 1
+
+      - name: Run ML Pipeline
+        run: |
+          docker exec hamza-chaieb-4ds1-ml_project_pipeline_1 python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all
+
+      - name: Stop Docker Compose
+        run: |
+          docker compose down

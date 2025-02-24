@@ -1,0 +1,10 @@
+{
+    "status": "completed",
+    "completion_time": "2025-02-24T09:54:59.658885",
+    "model_stage": "Staging",
+    "is_production_ready": "False",
+    "model_version": "20250224_0954",
+    "mlflow_run_id": "86e6b7df54d44d51974eb88cec4b6103",
+    "artifact_uri": "/home/hamza/hamza-chaieb-4DS1-ml_project/mlruns/enhanced_experiments/86e6b7df54d44d51974eb88cec4b6103/artifacts",
+    "artifacts_verified": "False"
+}

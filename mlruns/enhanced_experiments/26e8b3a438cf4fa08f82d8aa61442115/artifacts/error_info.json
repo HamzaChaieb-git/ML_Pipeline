@@ -1,0 +1,5 @@
+{
+    "error_type": "ValueError",
+    "error_message": "could not convert string to float: 'Yes'",
+    "timestamp": "2025-02-24T09:43:51.247329"
+}

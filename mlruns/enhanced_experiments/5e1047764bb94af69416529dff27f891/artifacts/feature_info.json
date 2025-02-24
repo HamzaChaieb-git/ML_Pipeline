@@ -1,0 +1,15 @@
+{
+  "categorical_features": [
+    "International plan",
+    "Voice mail plan"
+  ],
+  "numeric_features": [
+    "Total day minutes",
+    "Customer service calls",
+    "Total intl minutes",
+    "Total intl calls",
+    "Total eve minutes",
+    "Number vmail messages"
+  ],
+  "target": "Churn"
+}

@@ -1,0 +1,5 @@
+{
+    "error_type": "OSError",
+    "error_message": "Failed to save model to artifacts/models/model_v20250224_1032.joblib: [Errno 2] No such file or directory: 'artifacts/models/model_v20250224_1032.joblib'",
+    "timestamp": "2025-02-24T10:32:30.641766"
+}

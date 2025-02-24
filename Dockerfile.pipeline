@@ -1,0 +1,30 @@
+# Use your local ml-pipeline image
+FROM hamzachaieb01/ml-pipeline:latest
+
+# Set working directory
+WORKDIR /app
+
+# Copy all relevant Python files for the pipeline
+COPY main.py .
+COPY app.py .
+COPY streamlit_app.py .
+COPY data_processing.py .
+COPY model_evaluation.py .
+COPY model_training.py .
+COPY model_persistence.py .
+
+# Copy data files from root (since they’re not in a subdirectory)
+COPY churn-bigml-80.csv .
+COPY churn-bigml-20.csv .
+
+# Copy artifacts directory for model saving and tracking
+COPY artifacts/ /app/artifacts/
+
+# Copy MLflow database for tracking
+COPY mlflow.db .
+
+# Copy requirements.txt if it exists (optional, for dependency verification)
+COPY requirements.txt .
+
+# Command to run the pipeline (using root paths for data)
+CMD ["python", "main.py", "--train-file", "churn-bigml-80.csv", "--test-file", "churn-bigml-20.csv", "--action", "all"]

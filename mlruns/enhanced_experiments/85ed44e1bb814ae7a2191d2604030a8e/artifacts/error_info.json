@@ -1,0 +1,5 @@
+{
+    "error_type": "TypeError",
+    "error_message": "keys must be str, int, float, bool or None, not bool",
+    "timestamp": "2025-02-24T09:44:44.909268"
+}

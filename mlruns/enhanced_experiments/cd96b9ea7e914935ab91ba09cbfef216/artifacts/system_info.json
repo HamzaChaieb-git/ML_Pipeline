@@ -1,0 +1,11 @@
+{
+    "python_version": "3.12.3",
+    "system": "Linux",
+    "processor": "x86_64",
+    "memory_total": 15.53,
+    "memory_available": 11.43,
+    "cpu_count": 12,
+    "cpu_freq": 0.0,
+    "mlflow_version": "2.20.2",
+    "tracking_uri": "sqlite:///enhanced_mlflow.db"
+}
