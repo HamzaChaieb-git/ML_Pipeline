@@ -208,8 +208,8 @@ with st.form(key="churn_form", clear_on_submit=False):
         }
 
         try:
-            # Try to make a prediction via FastAPI
-            response = requests.post("http://localhost:8000/predict", json=input_data, timeout=10)
+            # Try to make a prediction via FastAPI using 127.0.0.1 for Docker compatibility
+            response = requests.post("http://127.0.0.1:8000/predict", json=input_data, timeout=10)
             response.raise_for_status()
             prediction = response.json()["churn_probabilities"][0]
             st.markdown(f'<div class="stSuccess">Churn Probability: {prediction:.4f}</div>', unsafe_allow_html=True)
@@ -238,7 +238,7 @@ with st.form(key="churn_form", clear_on_submit=False):
             st.plotly_chart(fig, use_container_width=True)
         
         except requests.exceptions.RequestException as e:
-            st.markdown(f'<div class="stError">Error making prediction: {str(e)}. Please check if the API server is running and all inputs are valid.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stError">Error making prediction: {str(e)}. Please check if the FastAPI server is running at 127.0.0.1:8000.</div>', unsafe_allow_html=True)
             
             # Fallback: Use local model if FastAPI fails
             if model:
