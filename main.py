@@ -20,17 +20,23 @@ import psutil
 # OpenTelemetry imports
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, BatchSpanProcessor
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.trace.status import Status, StatusCode
+from mlflow.tracking.fluent import MlflowSpanExporter
 
-# Initialize OpenTelemetry
+# Initialize OpenTelemetry with both Console and MLflow exporters
 trace.set_tracer_provider(TracerProvider())
 tracer = trace.get_tracer(__name__)
 
-# Add ConsoleSpanExporter
+# Add ConsoleSpanExporter (for terminal output)
 trace.get_tracer_provider().add_span_processor(
     SimpleSpanProcessor(ConsoleSpanExporter())
+)
+
+# Add MlflowSpanExporter to send traces to MLflow
+mlflow_exporter = MlflowSpanExporter()
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(mlflow_exporter)
 )
 
 def setup_enhanced_mlflow():
