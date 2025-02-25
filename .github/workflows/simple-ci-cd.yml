@@ -29,31 +29,47 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-      - name: Build Docker images
-        run: docker compose build --parallel --cache-from type=local,src=/tmp/.buildx-cache
-        # Note: Assumes Dockerfile pre-installs black, flake8, bandit, pytest-xdist
+      - name: Build Docker images with Buildx
+        run: |
+          # Build images for services defined in docker-compose.yml
+          docker buildx build \
+            --file Dockerfile.pipeline \
+            --tag pipeline:latest \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
+            --load \
+            .
+          # Add additional services if needed, e.g., fastapi, streamlit, mlflow
+          # Example:
+          # docker buildx build \
+          #   --file Dockerfile.fastapi \
+          #   --tag fastapi:latest \
+          #   --cache-from=type=local,src=/tmp/.buildx-cache \
+          #   --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
+          #   --load \
+          #   ./fastapi
 
       - name: Run Black formatting check
         run: |
           echo "Running Black formatting check on specific .py files..."
-          docker compose run --rm pipeline black --check main.py data_processing.py model_*.py > reports/black_report.txt 2>&1 || true
+          mkdir -p reports
+          docker run --rm pipeline:latest black --check main.py data_processing.py model_*.py > reports/black_report.txt 2>&1 || true
 
       - name: Run Flake8 linting check
         run: |
           echo "Running Flake8 linting check on specific .py files..."
-          docker compose run --rm pipeline flake8 main.py data_processing.py model_*.py > reports/flake8_report.txt 2>&1 || true
+          docker run --rm pipeline:latest flake8 main.py data_processing.py model_*.py > reports/flake8_report.txt 2>&1 || true
 
       - name: Run Bandit security check
         run: |
           echo "Running Bandit security check on specific .py files..."
-          docker compose run --rm pipeline bandit -r main.py data_processing.py model_*.py > reports/bandit_report.txt 2>&1 || true
+          docker run --rm pipeline:latest bandit -r main.py data_processing.py model_*.py > reports/bandit_report.txt 2>&1 || true
 
       - name: Run unit tests
         run: |
           echo "Running unit tests inside pipeline container..."
-          docker compose run --rm pipeline pytest tests/ -n auto -W ignore::DeprecationWarning -W ignore::UserWarning --junitxml=reports/pytest_report.xml > reports/pytest_output.txt 2>&1 || {
-            echo "Unit tests failed. Showing logs:"
-            docker compose logs pipeline
+          docker run --rm pipeline:latest pytest tests/ -n auto -W ignore::DeprecationWarning -W ignore::UserWarning --junitxml=reports/pytest_report.xml > reports/pytest_output.txt 2>&1 || {
+            echo "Unit tests failed."
             exit 1
           }
 
@@ -84,9 +100,6 @@ jobs:
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
-
-      - name: Build Docker images
-        run: docker compose build --parallel --cache-from type=local,src=/tmp/.buildx-cache
 
       - name: Start services
         run: |
@@ -154,12 +167,14 @@ jobs:
 
       - name: Validate model performance
         run: |
+          echo "Validating model performance..."
           docker compose run --rm pipeline python -m scripts.validate_model --metrics-output metrics.json
           accuracy=$(jq -r '.accuracy' metrics.json)
           if (( $(echo "$accuracy < 0.8" | bc -l) )); then
             echo "Model accuracy $accuracy is below threshold 0.8"
             exit 1
           fi
+          echo "Model accuracy $accuracy meets threshold."
 
       - name: Upload artifacts for deploy job
         uses: actions/upload-artifact@v4
@@ -168,6 +183,7 @@ jobs:
           path: |
             ./artifacts/
             ./mlflow.db
+          if-no-files-found: warn
 
       - name: Cleanup services
         if: always()
