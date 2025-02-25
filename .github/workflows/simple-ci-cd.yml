@@ -201,8 +201,7 @@ jobs:
           path: pipeline-artifacts.tar.gz
           if-no-files-found: warn
 
-      - name: Expose services with ngrok (optional)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.expose_services == 'true'
+      - name: Test ngrok exposure for MLflow and Streamlit
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
@@ -211,17 +210,32 @@ jobs:
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update && sudo apt install -y ngrok
           ngrok authtoken $NGROK_AUTH_TOKEN
-          ngrok http 5001 &  # MLflow
-          sleep 5
+
+          # Start services with docker compose
+          docker compose up -d
+          echo "Waiting for services to start (15 seconds)..."
+          sleep 15
+
+          # Expose MLflow (port 5001) for 30 seconds
+          echo "Exposing MLflow on port 5001 for 30 seconds..."
+          ngrok http 5001 &  # Run ngrok in background
+          sleep 5  # Wait for ngrok to establish tunnel
           MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          echo "MLflow URL: $MLFLOW_URL"
-          sleep 10
+          echo "MLflow URL (available for 30 seconds): $MLFLOW_URL"
+          sleep 30  # Keep MLflow exposed for 30 seconds
           pkill ngrok
-          ngrok http 8501 &  # Streamlit
-          sleep 5
+
+          # Expose Streamlit (port 8501) for 30 seconds
+          echo "Exposing Streamlit on port 8501 for 30 seconds..."
+          ngrok http 8501 &  # Run ngrok in background
+          sleep 5  # Wait for ngrok to establish tunnel
           STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          echo "Streamlit URL: $STREAMLIT_URL"
-          sleep 10
+          echo "Streamlit URL (available for 30 seconds): $STREAMLIT_URL"
+          sleep 30  # Keep Streamlit exposed for 30 seconds
+          pkill ngrok
+
+          # Cleanup services
+          docker compose down
           echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
           echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
 
