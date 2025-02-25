@@ -1,0 +1,7 @@
+tunnels:
+  first_tunnel:
+    proto: http
+    addr: 8080
+  second_tunnel:
+    proto: http
+    addr: 9090

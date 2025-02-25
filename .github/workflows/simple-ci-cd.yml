@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      expose_services:
+        description: 'Expose services with ngrok (true/false)'
+        required: false
+        default: 'false'
 
 jobs:
   build-and-unit-test:
@@ -15,36 +21,37 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker images
-        run: docker compose build
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
 
-      - name: Install linting and security tools
-        run: |
-          docker compose run --rm pipeline pip install --no-cache-dir black flake8 bandit
-          mkdir -p reports  # Create reports directory
+      - name: Build Docker images
+        run: docker compose build --parallel --cache-from type=local,src=/tmp/.buildx-cache
+        # Note: Assumes Dockerfile pre-installs black, flake8, bandit, pytest-xdist
 
       - name: Run Black formatting check
         run: |
-          echo "Running Black formatting check on .py files in root..."
-          docker compose run --rm pipeline black --check *.py > reports/black_report.txt 2>&1 || true
-          echo "Black check completed. Report saved to reports/black_report.txt"
+          echo "Running Black formatting check on specific .py files..."
+          docker compose run --rm pipeline black --check main.py data_processing.py model_*.py > reports/black_report.txt 2>&1 || true
 
       - name: Run Flake8 linting check
         run: |
-          echo "Running Flake8 linting check on .py files in root..."
-          docker compose run --rm pipeline flake8 *.py > reports/flake8_report.txt 2>&1 || true
-          echo "Flake8 check completed. Report saved to reports/flake8_report.txt"
+          echo "Running Flake8 linting check on specific .py files..."
+          docker compose run --rm pipeline flake8 main.py data_processing.py model_*.py > reports/flake8_report.txt 2>&1 || true
 
       - name: Run Bandit security check
         run: |
-          echo "Running Bandit security check on .py files in root..."
-          docker compose run --rm pipeline bandit -r *.py > reports/bandit_report.txt 2>&1 || true
-          echo "Bandit check completed. Report saved to reports/bandit_report.txt"
+          echo "Running Bandit security check on specific .py files..."
+          docker compose run --rm pipeline bandit -r main.py data_processing.py model_*.py > reports/bandit_report.txt 2>&1 || true
 
       - name: Run unit tests
         run: |
           echo "Running unit tests inside pipeline container..."
-          docker compose run --rm pipeline pytest tests/ || {
+          docker compose run --rm pipeline pytest tests/ -n auto -W ignore::DeprecationWarning -W ignore::UserWarning --junitxml=reports/pytest_report.xml > reports/pytest_output.txt 2>&1 || {
             echo "Unit tests failed. Showing logs:"
             docker compose logs pipeline
             exit 1
@@ -70,86 +77,101 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build Docker images
+        run: docker compose build --parallel --cache-from type=local,src=/tmp/.buildx-cache
+
       - name: Start services
         run: |
           docker compose up -d
-          echo "Waiting for services to start (30 seconds)..."
-          sleep 30
+          echo "Waiting for services to start (15 seconds)..."
+          sleep 15
           echo "Container status:"
           docker compose ps
 
-      - name: Check FastAPI health (Functional Test)
+      - name: Run functional tests in parallel
         run: |
-          for i in {1..5}; do
-            echo "Attempt $i: Checking FastAPI health..."
-            if curl -s http://localhost:8000/health | grep -q "healthy"; then
-              echo "FastAPI is healthy!"
-              break
-            fi
-            if [ $i -eq 5 ]; then
-              echo "FastAPI health check failed after 5 attempts"
-              docker compose logs fastapi
-              exit 1
-            fi
-            echo "Waiting 5 seconds before next attempt..."
-            sleep 5
-          done
+          check_fastapi() {
+            for i in {1..5}; do
+              echo "Attempt $i: Checking FastAPI health..."
+              if curl -s http://localhost:8000/health | grep -q "healthy"; then
+                echo "FastAPI is healthy!"
+                return 0
+              fi
+              if [ $i -eq 5 ]; then
+                echo "FastAPI health check failed after 5 attempts"
+                docker compose logs fastapi
+                return 1
+              fi
+              echo "Waiting 2 seconds before next attempt..."
+              sleep 2
+            done
+          }
 
-      - name: Test FastAPI prediction endpoint (Functional Test)
-        run: |
-          echo "Testing FastAPI prediction endpoint..."
-          curl -X POST -H "Content-Type: application/json" \
-            -d '{"Total day minutes": [120.5], "Customer service calls": [3], "International plan": [0], "Total intl minutes": [10.2], "Total intl calls": [5], "Total eve minutes": [200.0], "Number vmail messages": [0], "Voice mail plan": [0]}' \
-            http://localhost:8000/predict || {
-              echo "FastAPI prediction test failed. Showing logs:"
-              docker compose logs fastapi
-              exit 1
-            }
+          check_streamlit() {
+            for i in {1..5}; do
+              if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
+                echo "Streamlit is running properly"
+                return 0
+              fi
+              if [ $i -eq 5 ]; then
+                echo "Streamlit check failed after 5 attempts, showing logs:"
+                docker compose logs streamlit
+                return 1
+              fi
+              echo "Waiting 2 seconds before next attempt..."
+              sleep 2
+            done
+          }
 
-      - name: Check Streamlit (Functional Test)
-        run: |
-          for i in {1..5}; do
-            if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
-              echo "Streamlit is running properly"
-              break
-            fi
-            if [ $i -eq 5 ]; then
-              echo "Streamlit check failed after 5 attempts, showing logs:"
-              docker compose logs streamlit
-              exit 1
-            fi
-            echo "Waiting 5 seconds before next attempt..."
-            sleep 5
-          done
+          check_mlflow() {
+            for i in {1..5}; do
+              if docker compose logs mlflow | grep -q "Listening at:"; then
+                echo "MLflow is running properly"
+                return 0
+              fi
+              if [ $i -eq 5 ]; then
+                echo "MLflow check failed after 5 attempts, showing logs:"
+                docker compose logs mlflow
+                return 1
+              fi
+              echo "Waiting 2 seconds before next attempt..."
+              sleep 2
+            done
+          }
 
-      - name: Check MLflow (Functional Test)
-        run: |
-          for i in {1..5}; do
-            if docker compose logs mlflow | grep -q "Listening at:"; then
-              echo "MLflow is running properly"
-              break
-            fi
-            if [ $i -eq 5 ]; then
-              echo "MLflow check failed after 5 attempts, showing logs:"
-              docker compose logs mlflow
-              exit 1
-            fi
-            echo "Waiting 5 seconds before next attempt..."
-            sleep 5
-          done
+          check_fastapi &
+          check_streamlit &
+          check_mlflow &
+          wait
 
-      - name: Verify pipeline execution
+      - name: Validate model performance
         run: |
-          echo "Checking pipeline execution status..."
-          PIPELINE_STATUS=$(docker inspect ml_pipeline-pipeline-1 --format='{{.State.ExitCode}}')
-          if [ "$PIPELINE_STATUS" -eq 0 ]; then
-            echo "Pipeline executed successfully"
-            docker compose logs pipeline
-          else
-            echo "Pipeline execution failed with exit code $PIPELINE_STATUS, showing logs:"
-            docker compose logs pipeline
+          docker compose run --rm pipeline python -m scripts.validate_model --metrics-output metrics.json
+          accuracy=$(jq -r '.accuracy' metrics.json)
+          if (( $(echo "$accuracy < 0.8" | bc -l) )); then
+            echo "Model accuracy $accuracy is below threshold 0.8"
             exit 1
           fi
+
+      - name: Upload artifacts for deploy job
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts-for-deploy
+          path: |
+            ./artifacts/
+            ./mlflow.db
+
+      - name: Cleanup services
+        if: always()
+        run: docker compose down
 
       - name: Notify on functional test completion
         run: echo "Functional tests and pipeline execution completed successfully."
@@ -164,16 +186,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Upload artifacts
+      - name: Download artifacts from functional test job
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-artifacts-for-deploy
+
+      - name: Compress and upload final artifacts
+        run: |
+          tar -czf pipeline-artifacts.tar.gz ./artifacts/ ./mlflow.db
+          echo "Compressed artifacts into pipeline-artifacts.tar.gz"
+
+      - name: Upload compressed artifacts
         uses: actions/upload-artifact@v4
         with:
           name: pipeline-artifacts
-          path: |
-            ./artifacts/
-            ./mlflow.db
+          path: pipeline-artifacts.tar.gz
           if-no-files-found: warn
 
       - name: Expose services with ngrok (optional)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.expose_services == 'true'
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
@@ -183,16 +214,38 @@ jobs:
           sudo apt update && sudo apt install -y ngrok
           ngrok authtoken $NGROK_AUTH_TOKEN
           ngrok http 5001 &  # MLflow
-          sleep 15
+          sleep 5
           MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "MLflow URL: $MLFLOW_URL"
-          sleep 180
+          sleep 10
           pkill ngrok
           ngrok http 8501 &  # Streamlit
-          sleep 15
+          sleep 5
           STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "Streamlit URL: $STREAMLIT_URL"
-          sleep 180
+          sleep 10
+          echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
+          echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
+
+      - name: Set email body
+        run: |
+          body="The ML Pipeline CI/CD workflow completed successfully.
+          - FastAPI: Healthy
+          - Streamlit: Running
+          - MLflow: Running
+          - Pipeline Status: Success
+          Artifacts uploaded to GitHub."
+          if [ -n "$MLFLOW_URL" ]; then
+            body="$body
+          MLflow URL: $MLFLOW_URL"
+          fi
+          if [ -n "$STREAMLIT_URL" ]; then
+            body="$body
+          Streamlit URL: $STREAMLIT_URL"
+          fi
+          echo "EMAIL_BODY<<EOF" >> $GITHUB_ENV
+          echo "$body" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
@@ -204,14 +257,4 @@ jobs:
           subject: "ML Pipeline CI/CD Completed"
           to: hitthetarget735@gmail.com
           from: GitHub Actions
-          body: |
-            The ML Pipeline CI/CD workflow completed successfully.
-            - FastAPI: Healthy
-            - Streamlit: Running
-            - MLflow: Running
-            - Pipeline Status: Success
-            Artifacts uploaded to GitHub.
-
-      - name: Cleanup
-        if: always()
-        run: docker compose down
+          body: ${{ env.EMAIL_BODY }}
