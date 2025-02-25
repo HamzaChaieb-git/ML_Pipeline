@@ -31,7 +31,6 @@ jobs:
 
       - name: Build Docker images with Buildx
         run: |
-          # Build images for services defined in docker-compose.yml
           docker buildx build \
             --file Dockerfile.pipeline \
             --tag pipeline:latest \
@@ -39,15 +38,6 @@ jobs:
             --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
             --load \
             .
-          # Add additional services if needed, e.g., fastapi, streamlit, mlflow
-          # Example:
-          # docker buildx build \
-          #   --file Dockerfile.fastapi \
-          #   --tag fastapi:latest \
-          #   --cache-from=type=local,src=/tmp/.buildx-cache \
-          #   --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
-          #   --load \
-          #   ./fastapi
 
       - name: Run Black formatting check
         run: |
@@ -68,12 +58,14 @@ jobs:
       - name: Run unit tests
         run: |
           echo "Running unit tests inside pipeline container..."
-          docker run --rm pipeline:latest pytest tests/ -n auto -W ignore::DeprecationWarning -W ignore::UserWarning --junitxml=reports/pytest_report.xml > reports/pytest_output.txt 2>&1 || {
-            echo "Unit tests failed."
+          mkdir -p reports
+          docker run --rm pipeline:latest pytest tests/ -n auto -v -W ignore::DeprecationWarning -W ignore::UserWarning --junitxml=reports/pytest_report.xml | tee reports/pytest_output.txt || {
+            echo "Unit tests failed. See logs above for details."
             exit 1
           }
 
-      - name: Upload linting and security reports
+      - name: Upload linting, security, and test reports
+        if: always()  # Run even if tests fail
         uses: actions/upload-artifact@v4
         with:
           name: code-quality-reports
@@ -81,6 +73,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Notify on unit test completion
+        if: success()
         run: echo "Unit tests and code quality checks completed successfully."
 
   run-and-functional-test:
