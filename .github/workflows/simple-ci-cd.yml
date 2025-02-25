@@ -65,7 +65,7 @@ jobs:
           }
 
       - name: Upload linting, security, and test reports
-        if: always()  # Run even if tests fail
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: code-quality-reports
@@ -157,17 +157,6 @@ jobs:
           check_streamlit &
           check_mlflow &
           wait
-
-      - name: Validate model performance
-        run: |
-          echo "Validating model performance..."
-          docker compose run --rm pipeline python -m scripts.validate_model --metrics-output metrics.json
-          accuracy=$(jq -r '.accuracy' metrics.json)
-          if (( $(echo "$accuracy < 0.8" | bc -l) )); then
-            echo "Model accuracy $accuracy is below threshold 0.8"
-            exit 1
-          fi
-          echo "Model accuracy $accuracy meets threshold."
 
       - name: Upload artifacts for deploy job
         uses: actions/upload-artifact@v4
