@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/9ed66d225a514e3fb7b2c2c23b623830/artifacts
+end_time: 1740524194903
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 9ed66d225a514e3fb7b2c2c23b623830
+run_name: skittish-vole-305
+run_uuid: 9ed66d225a514e3fb7b2c2c23b623830
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1740524165183
+status: 3
+tags: []
+user_id: root

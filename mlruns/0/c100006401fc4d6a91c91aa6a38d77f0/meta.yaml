@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/c100006401fc4d6a91c91aa6a38d77f0/artifacts
+end_time: 1740524106150
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: c100006401fc4d6a91c91aa6a38d77f0
+run_name: debonair-cat-963
+run_uuid: c100006401fc4d6a91c91aa6a38d77f0
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1740524079704
+status: 3
+tags: []
+user_id: root

@@ -23,8 +23,8 @@ COPY artifacts/ /app/artifacts/
 # Copy MLflow database for tracking
 COPY mlflow.db .
 
-# Install missing libraries directly
-RUN pip install --no-cache-dir seaborn plotly
+# Install missing libraries and development tools
+RUN pip install --no-cache-dir seaborn plotly pytest black flake8 bandit
 
 # Command to run the pipeline
 CMD ["python", "main.py", "--train-file", "churn-bigml-80.csv", "--test-file", "churn-bigml-20.csv", "--action", "all"]

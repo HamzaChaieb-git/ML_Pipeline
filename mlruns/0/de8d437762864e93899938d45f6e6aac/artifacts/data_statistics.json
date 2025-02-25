@@ -1,0 +1,88 @@
+{
+    "dataset_info": {
+        "n_samples": 2,
+        "n_features": 8,
+        "feature_names": [
+            "Total day minutes",
+            "Customer service calls",
+            "International plan",
+            "Total intl minutes",
+            "Total intl calls",
+            "Total eve minutes",
+            "Number vmail messages",
+            "Voice mail plan"
+        ],
+        "class_distribution": {
+            "0": 1,
+            "1": 1
+        },
+        "missing_values": {
+            "Total day minutes": 0,
+            "Customer service calls": 0,
+            "International plan": 0,
+            "Total intl minutes": 0,
+            "Total intl calls": 0,
+            "Total eve minutes": 0,
+            "Number vmail messages": 0,
+            "Voice mail plan": 0
+        }
+    },
+    "feature_stats": {
+        "Total day minutes": {
+            "mean": 135.4,
+            "std": 21.071782079359124,
+            "min": 120.5,
+            "max": 150.3,
+            "unique_values": 2
+        },
+        "Customer service calls": {
+            "mean": 2.5,
+            "std": 0.7071067811865476,
+            "min": 2.0,
+            "max": 3.0,
+            "unique_values": 2
+        },
+        "International plan": {
+            "mean": 0.5,
+            "std": 0.7071067811865476,
+            "min": 0.0,
+            "max": 1.0,
+            "unique_values": 2
+        },
+        "Total intl minutes": {
+            "mean": 9.35,
+            "std": 1.2020815280171302,
+            "min": 8.5,
+            "max": 10.2,
+            "unique_values": 2
+        },
+        "Total intl calls": {
+            "mean": 4.5,
+            "std": 0.7071067811865476,
+            "min": 4.0,
+            "max": 5.0,
+            "unique_values": 2
+        },
+        "Total eve minutes": {
+            "mean": 190.25,
+            "std": 13.788582233137676,
+            "min": 180.5,
+            "max": 200.0,
+            "unique_values": 2
+        },
+        "Number vmail messages": {
+            "mean": 2.5,
+            "std": 3.5355339059327378,
+            "min": 0.0,
+            "max": 5.0,
+            "unique_values": 2
+        },
+        "Voice mail plan": {
+            "mean": 0.5,
+            "std": 0.7071067811865476,
+            "min": 0.0,
+            "max": 1.0,
+            "unique_values": 2
+        }
+    }
+}

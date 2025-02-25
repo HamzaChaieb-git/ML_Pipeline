@@ -1,0 +1,12 @@
+{
+    "max_depth": "Controls the maximum depth of each tree, higher value means more complex model",
+    "learning_rate": "Step size shrinkage used to prevent overfitting",
+    "n_estimators": "Number of gradient boosted trees, higher value means more powerful model",
+    "min_child_weight": "Minimum sum of instance weight needed in a child to continue partitioning",
+    "subsample": "Percentage of samples used for training each tree",
+    "colsample_bytree": "Percentage of features used for training each tree",
+    "gamma": "Minimum loss reduction required to make a further partition",
+    "reg_alpha": "L1 regularization term on weights",
+    "reg_lambda": "L2 regularization term on weights",
+    "scale_pos_weight": "Controls the balance of positive and negative weights"
+}

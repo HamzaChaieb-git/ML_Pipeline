@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/44c0f8aaedc542a0afc3a5d3928a2d3d/artifacts
+end_time: 1740523783019
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 44c0f8aaedc542a0afc3a5d3928a2d3d
+run_name: polite-owl-334
+run_uuid: 44c0f8aaedc542a0afc3a5d3928a2d3d
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1740523745276
+status: 3
+tags: []
+user_id: root

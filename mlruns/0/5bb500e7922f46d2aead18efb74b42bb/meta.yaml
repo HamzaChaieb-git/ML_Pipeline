@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/5bb500e7922f46d2aead18efb74b42bb/artifacts
+end_time: 1740522740789
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 5bb500e7922f46d2aead18efb74b42bb
+run_name: efficient-bee-315
+run_uuid: 5bb500e7922f46d2aead18efb74b42bb
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1740522726577
+status: 3
+tags: []
+user_id: root

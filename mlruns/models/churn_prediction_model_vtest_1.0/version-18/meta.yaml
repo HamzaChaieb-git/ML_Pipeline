@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1740523769923
+current_stage: None
+description: null
+last_updated_timestamp: 1740523769923
+name: churn_prediction_model_vtest_1.0
+run_id: 44c0f8aaedc542a0afc3a5d3928a2d3d
+run_link: null
+source: file:///app/mlruns/0/44c0f8aaedc542a0afc3a5d3928a2d3d/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///app/mlruns/0/44c0f8aaedc542a0afc3a5d3928a2d3d/artifacts/model
+user_id: null
+version: 18

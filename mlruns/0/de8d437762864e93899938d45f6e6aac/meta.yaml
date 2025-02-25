@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/de8d437762864e93899938d45f6e6aac/artifacts
+end_time: 1740523649770
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: de8d437762864e93899938d45f6e6aac
+run_name: bouncy-quail-343
+run_uuid: de8d437762864e93899938d45f6e6aac
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1740523614183
+status: 3
+tags: []
+user_id: root

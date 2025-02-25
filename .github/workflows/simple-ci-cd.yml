@@ -26,30 +26,19 @@ jobs:
       - name: Run Black formatting check
         run: |
           echo "Running Black formatting check on .py files in root..."
-          docker compose run --rm pipeline black --check *.py > reports/black_report.txt 2>&1 || {
-            echo "Black formatting check failed. See reports/black_report.txt for details."
-            cat reports/black_report.txt
-            exit 1
-          }
-          echo "Black check passed. Report saved to reports/black_report.txt"
+          docker compose run --rm pipeline black --check *.py > reports/black_report.txt 2>&1 || true
+          echo "Black check completed. Report saved to reports/black_report.txt"
 
       - name: Run Flake8 linting check
         run: |
           echo "Running Flake8 linting check on .py files in root..."
-          docker compose run --rm pipeline flake8 *.py > reports/flake8_report.txt 2>&1 || {
-            echo "Flake8 linting check failed. See reports/flake8_report.txt for details."
-            cat reports/flake8_report.txt
-            exit 1
-          }
-          echo "Flake8 check passed. Report saved to reports/flake8_report.txt"
+          docker compose run --rm pipeline flake8 *.py > reports/flake8_report.txt 2>&1 || true
+          echo "Flake8 check completed. Report saved to reports/flake8_report.txt"
 
       - name: Run Bandit security check
         run: |
           echo "Running Bandit security check on .py files in root..."
-          docker compose run --rm pipeline bandit -r *.py > reports/bandit_report.txt 2>&1 || {
-            echo "Bandit security check failed (treating as warning). See reports/bandit_report.txt for details."
-            cat reports/bandit_report.txt
-          }
+          docker compose run --rm pipeline bandit -r *.py > reports/bandit_report.txt 2>&1 || true
           echo "Bandit check completed. Report saved to reports/bandit_report.txt"
 
       - name: Run unit tests

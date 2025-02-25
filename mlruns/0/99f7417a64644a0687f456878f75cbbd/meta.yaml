@@ -1,0 +1,15 @@
+artifact_uri: file:///app/mlruns/0/99f7417a64644a0687f456878f75cbbd/artifacts
+end_time: 1740523921449
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 99f7417a64644a0687f456878f75cbbd
+run_name: abrasive-croc-600
+run_uuid: 99f7417a64644a0687f456878f75cbbd
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1740523904652
+status: 3
+tags: []
+user_id: root

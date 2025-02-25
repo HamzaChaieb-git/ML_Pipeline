@@ -1,0 +1,37 @@
+artifact_path: model
+flavors:
+  python_function:
+    data: model.xgb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.12.9
+  xgboost:
+    code: null
+    data: model.xgb
+    model_class: xgboost.sklearn.XGBClassifier
+    model_format: xgb
+    xgb_version: 2.1.4
+is_signature_from_type_hint: false
+mlflow_version: 2.20.1
+model_size_bytes: 70906
+model_uuid: da9f3d4484244cf8b47f61f2ce0afeeb
+run_id: d5f9251308c04b3e986ada0d17ca7bf6
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "Total day minutes", "required": true}, {"type":
+    "long", "name": "Customer service calls", "required": true}, {"type": "long",
+    "name": "International plan", "required": true}, {"type": "double", "name": "Total
+    intl minutes", "required": true}, {"type": "long", "name": "Total intl calls",
+    "required": true}, {"type": "double", "name": "Total eve minutes", "required":
+    true}, {"type": "long", "name": "Number vmail messages", "required": true}, {"type":
+    "long", "name": "Voice mail plan", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "int64", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2025-02-25 22:44:24.902280'

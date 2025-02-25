@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   fastapi:
     build:
@@ -15,9 +13,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s      # Reduced from 30s
-      timeout: 5s        # Reduced from 10s
-      retries: 3         # Reduced from 5
-      start_period: 15s  # Increased from 10s to give app more time to start
+      timeout: 5s       # Reduced from 10s
+      retries: 3        # Reduced from 5
+      start_period: 15s # Increased from 10s to give app more time to start
 
   streamlit:
     build:
@@ -60,6 +58,7 @@ services:
       - ./:/app  # Mount the entire project root for all files (simpler for root-level data and scripts)
       - ./artifacts:/app/artifacts  # Specific mount for artifacts
       - ./mlflow.db:/app/mlflow.db  # Specific mount for MLflow DB
+      - ./reports:/app/reports      # Add mount for reports directory (for linting/security outputs)
     depends_on:
       mlflow:
         condition: service_started
