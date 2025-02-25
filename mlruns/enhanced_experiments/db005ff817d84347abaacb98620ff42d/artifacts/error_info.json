@@ -1,5 +1,0 @@
-{
-    "error_type": "TypeError",
-    "error_message": "XGBClassifier.fit() got an unexpected keyword argument 'eval_metric'",
-    "timestamp": "2025-02-24T09:45:35.151042"
-}

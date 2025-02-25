@@ -1,9 +1,0 @@
-version: 2
-authtoken: ${NGROK_AUTH_TOKEN}
-tunnels:
-  mlflow:
-    addr: 5001
-    proto: http
-  streamlit:
-    addr: 8501
-    proto: http

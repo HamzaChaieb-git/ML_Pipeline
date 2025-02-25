@@ -1,2 +1,0 @@
-Model evaluation completed
-Model Accuracy: 0.9505
