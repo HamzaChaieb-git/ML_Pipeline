@@ -1,5 +1,0 @@
-{
-    "error_type": "AttributeError",
-    "error_message": "module 'mlflow.tracing' has no attribute 'start_span'",
-    "timestamp": "2025-02-24T10:25:36.471407"
-}
