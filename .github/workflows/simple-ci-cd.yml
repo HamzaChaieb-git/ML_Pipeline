@@ -6,9 +6,8 @@ on:
       - main
 
 jobs:
-  build-and-run:
+  build-and-unit-test:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,6 +18,69 @@ jobs:
       - name: Build Docker images
         run: docker compose build
 
+      - name: Install linting and security tools
+        run: |
+          docker compose run --rm pipeline pip install --no-cache-dir black flake8 bandit
+          mkdir -p reports  # Create reports directory
+
+      - name: Run Black formatting check
+        run: |
+          echo "Running Black formatting check on .py files in root..."
+          docker compose run --rm pipeline black --check *.py > reports/black_report.txt 2>&1 || {
+            echo "Black formatting check failed. See reports/black_report.txt for details."
+            cat reports/black_report.txt
+            exit 1
+          }
+          echo "Black check passed. Report saved to reports/black_report.txt"
+
+      - name: Run Flake8 linting check
+        run: |
+          echo "Running Flake8 linting check on .py files in root..."
+          docker compose run --rm pipeline flake8 *.py > reports/flake8_report.txt 2>&1 || {
+            echo "Flake8 linting check failed. See reports/flake8_report.txt for details."
+            cat reports/flake8_report.txt
+            exit 1
+          }
+          echo "Flake8 check passed. Report saved to reports/flake8_report.txt"
+
+      - name: Run Bandit security check
+        run: |
+          echo "Running Bandit security check on .py files in root..."
+          docker compose run --rm pipeline bandit -r *.py > reports/bandit_report.txt 2>&1 || {
+            echo "Bandit security check failed (treating as warning). See reports/bandit_report.txt for details."
+            cat reports/bandit_report.txt
+          }
+          echo "Bandit check completed. Report saved to reports/bandit_report.txt"
+
+      - name: Run unit tests
+        run: |
+          echo "Running unit tests inside pipeline container..."
+          docker compose run --rm pipeline pytest tests/ || {
+            echo "Unit tests failed. Showing logs:"
+            docker compose logs pipeline
+            exit 1
+          }
+
+      - name: Upload linting and security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-quality-reports
+          path: reports/
+          if-no-files-found: warn
+
+      - name: Notify on unit test completion
+        run: echo "Unit tests and code quality checks completed successfully."
+
+  run-and-functional-test:
+    runs-on: ubuntu-24.04
+    needs: build-and-unit-test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Start services
         run: |
           docker compose up -d
@@ -27,7 +89,7 @@ jobs:
           echo "Container status:"
           docker compose ps
 
-      - name: Check FastAPI health
+      - name: Check FastAPI health (Functional Test)
         run: |
           for i in {1..5}; do
             echo "Attempt $i: Checking FastAPI health..."
@@ -44,7 +106,18 @@ jobs:
             sleep 5
           done
 
-      - name: Check Streamlit
+      - name: Test FastAPI prediction endpoint (Functional Test)
+        run: |
+          echo "Testing FastAPI prediction endpoint..."
+          curl -X POST -H "Content-Type: application/json" \
+            -d '{"Total day minutes": [120.5], "Customer service calls": [3], "International plan": [0], "Total intl minutes": [10.2], "Total intl calls": [5], "Total eve minutes": [200.0], "Number vmail messages": [0], "Voice mail plan": [0]}' \
+            http://localhost:8000/predict || {
+              echo "FastAPI prediction test failed. Showing logs:"
+              docker compose logs fastapi
+              exit 1
+            }
+
+      - name: Check Streamlit (Functional Test)
         run: |
           for i in {1..5}; do
             if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
@@ -52,7 +125,7 @@ jobs:
               break
             fi
             if [ $i -eq 5 ]; then
-              echo "Streamlit server check failed after 5 attempts, showing logs:"
+              echo "Streamlit check failed after 5 attempts, showing logs:"
               docker compose logs streamlit
               exit 1
             fi
@@ -60,7 +133,7 @@ jobs:
             sleep 5
           done
 
-      - name: Check MLflow
+      - name: Check MLflow (Functional Test)
         run: |
           for i in {1..5}; do
             if docker compose logs mlflow | grep -q "Listening at:"; then
@@ -68,7 +141,7 @@ jobs:
               break
             fi
             if [ $i -eq 5 ]; then
-              echo "MLflow server check failed after 5 attempts, showing logs:"
+              echo "MLflow check failed after 5 attempts, showing logs:"
               docker compose logs mlflow
               exit 1
             fi
@@ -76,7 +149,7 @@ jobs:
             sleep 5
           done
 
-      - name: Verify Pipeline execution
+      - name: Verify pipeline execution
         run: |
           echo "Checking pipeline execution status..."
           PIPELINE_STATUS=$(docker inspect ml_pipeline-pipeline-1 --format='{{.State.ExitCode}}')
@@ -89,6 +162,19 @@ jobs:
             exit 1
           fi
 
+      - name: Notify on functional test completion
+        run: echo "Functional tests and pipeline execution completed successfully."
+
+  deploy-and-notify:
+    runs-on: ubuntu-24.04
+    needs: run-and-functional-test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -98,74 +184,44 @@ jobs:
             ./mlflow.db
           if-no-files-found: warn
 
-      - name: Expose services with ngrok sequentially (3 minutes MLflow, 3 minutes Streamlit)
+      - name: Expose services with ngrok (optional)
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          echo "Installing ngrok to expose MLflow and Streamlit sequentially..."
-
-          # Install ngrok
+          echo "Installing ngrok to expose services..."
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update && sudo apt install -y ngrok
           ngrok authtoken $NGROK_AUTH_TOKEN
-          
-          # Wait for services to be fully ready (additional 10 seconds)
-          echo "Waiting an additional 10 seconds for services to stabilize..."
-          sleep 10
-
-          # Expose MLflow first for 3 minutes
-          echo "Starting ngrok tunnel for MLflow (port 5001)..."
-          ngrok http 5001 > /dev/null &
-          sleep 15  # Wait for MLflow tunnel to stabilize
-
-          # Check MLflow tunnel and get URL
-          echo "Raw ngrok tunnels for MLflow:"
-          curl -s http://localhost:4040/api/tunnels
-          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:5001"))[0].public_url')
-          
-          if [ "$MLFLOW_URL" = "null" ]; then
-            echo "Error: MLflow ngrok URL is null. Showing detailed logs:"
-            docker compose logs mlflow
-            # Try to debug further by checking ngrok status
-            echo "Checking ngrok status..."
-            curl -s http://localhost:4040/status
-            exit 1
-          fi
-
+          ngrok http 5001 &  # MLflow
+          sleep 15
+          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "MLflow URL: $MLFLOW_URL"
-          echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
-          echo "MLflow is running. Access it at $MLFLOW_URL for 3 minutes."
-          sleep 180  # Keep MLflow alive for 3 minutes (180 seconds)
-
-          # Stop the ngrok tunnel for MLflow
-          echo "Stopping ngrok tunnel for MLflow..."
+          sleep 180
           pkill ngrok
-          sleep 5  # Wait for ngrok to shut down
-
-          # Expose Streamlit second for 3 minutes
-          echo "Starting ngrok tunnel for Streamlit (port 8501)..."
-          ngrok http 8501 > /dev/null &
-          sleep 15  # Wait for Streamlit tunnel to stabilize
-
-          # Check Streamlit tunnel and get URL
-          echo "Raw ngrok tunnels for Streamlit:"
-          curl -s http://localhost:4040/api/tunnels
-          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:8501"))[0].public_url')
-          
-          if [ "$STREAMLIT_URL" = "null" ]; then
-            echo "Error: Streamlit ngrok URL is null. Showing detailed logs:"
-            docker compose logs streamlit
-            # Try to debug further by checking ngrok status
-            echo "Checking ngrok status..."
-            curl -s http://localhost:4040/status
-            exit 1
-          fi
-
+          ngrok http 8501 &  # Streamlit
+          sleep 15
+          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "Streamlit URL: $STREAMLIT_URL"
-          echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
-          echo "Streamlit is running. Access it at $STREAMLIT_URL for 3 minutes."
-          sleep 180  # Keep Streamlit alive for 3 minutes (180 seconds)
+          sleep 180
+
+      - name: Send email notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "ML Pipeline CI/CD Completed"
+          to: hitthetarget735@gmail.com
+          from: GitHub Actions
+          body: |
+            The ML Pipeline CI/CD workflow completed successfully.
+            - FastAPI: Healthy
+            - Streamlit: Running
+            - MLflow: Running
+            - Pipeline Status: Success
+            Artifacts uploaded to GitHub.
 
       - name: Cleanup
         if: always()
