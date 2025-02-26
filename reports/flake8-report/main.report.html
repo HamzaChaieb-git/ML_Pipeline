@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <title>flake8 violations: main.py</title>
+      <meta http-equiv="Content-Type" value="text/html; charset=UTF-8">
+      <link rel="stylesheet" href="styles.css">
+<script>
+function bindHandler(link) {
+   var code = link.getAttribute('data-code');
+   var key = location.pathname + '#' + code;
+
+   var ul = link.parentNode.querySelector('.details');
+   if (sessionStorage[key] != 'open') {
+      ul.style.display = 'none';
+   }
+   link.addEventListener('click', function (event) {
+      if (!ul.style.display || ul.style.display == 'none') {
+         ul.style.display = 'block';
+         sessionStorage[key] = 'open';
+      } else {
+         ul.style.display = 'none';
+         sessionStorage[key] = 'closed';
+      }
+   });
+}
+
+window.addEventListener('DOMContentLoaded', function () {
+   var links = document.querySelectorAll('#index > li > a');
+   for (var i = 0; i < links.length; i++) {
+      bindHandler(links[i]);
+   }
+});
+</script>
+   </head>
+   <body>
+      <div id="masthead" class="sev-1"></div>
+      <div id="page">
+         <p id="srclink">
+            <a title="View full annotated source"
+               href="main.source.html">
+               <img src="file.svg" alt="&#x2261;">
+            </a></p>
+         <h1>
+            <a href="index.html">
+               <img src="back.svg" alt="&#x2B05;">
+               main.py
+            </a>
+         </h1>
+
+         <ul id="index">
+         
+         <li>
+            <a data-code="F401">
+               <span class="count sev-1">
+                  7
+               </span>
+               <strong>F401:</strong> 'sys' imported but unused
+               
+                  (and 6 similar)
+               
+            </a>
+            <ul class="details">
+            <li>
+               
+               <p>'sys' imported but unused:</p>
+               
+               <a href="main.source.html#l10">
+                  <tt><i>10</i> <span class="kn">import</span><span class="w"> </span><span class="nn">sys</span></tt>
+               </a>
+            </li><li>
+               
+               <p>'json' imported but unused:</p>
+               
+               <a href="main.source.html#l11">
+                  <tt><i>11</i> <span class="kn">import</span><span class="w"> </span><span class="nn">json</span></tt>
+               </a>
+            </li><li>
+               
+               <p>'shutil' imported but unused:</p>
+               
+               <a href="main.source.html#l12">
+                  <tt><i>12</i> <span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span></tt>
+               </a>
+            </li><li>
+               
+               <p>'numpy as np' imported but unused:</p>
+               
+               <a href="main.source.html#l13">
+                  <tt><i>13</i> <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span></tt>
+               </a>
+            </li><li>
+               
+               <p>'sklearn.metrics.classification_report' imported but unused:</p>
+               
+               <a href="main.source.html#l14">
+                  <tt><i>14</i> <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">classification_report</span><span class="p">,</span> <span class="n">confusion_matrix</span></tt>
+               </a>
+            </li><li>
+               
+               <p>'sklearn.metrics.confusion_matrix' imported but unused:</p>
+               
+               <a href="main.source.html#l14">
+                  <tt><i>14</i> <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">classification_report</span><span class="p">,</span> <span class="n">confusion_matrix</span></tt>
+               </a>
+            </li><li>
+               
+               <p>'mlflow.models.signature.infer_signature' imported but unused:</p>
+               
+               <a href="main.source.html#l20">
+                  <tt><i>20</i> <span class="kn">from</span><span class="w"> </span><span class="nn">mlflow.models.signature</span><span class="w"> </span><span class="kn">import</span> <span class="n">infer_signature</span></tt>
+               </a>
+            </li>
+            </ul>
+         </li>
+         
+         <li>
+            <a data-code="E501">
+               <span class="count sev-2">
+                  1
+               </span>
+               <strong>E501:</strong> line too long (102 > 100 characters)
+               
+            </a>
+            <ul class="details">
+            <li>
+               
+               <a href="main.source.html#l1">
+                  <tt><i>1</i> <span class="sd">&quot;&quot;&quot;Enhanced main module for running the ML pipeline with MLflow native tracing using @mlflow.trace.&quot;&quot;&quot;</span></tt>
+               </a>
+            </li>
+            </ul>
+         </li>
+         
+         </ul>
+      </div>
+   </body>
+</html>

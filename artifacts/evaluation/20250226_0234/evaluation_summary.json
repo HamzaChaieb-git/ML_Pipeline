@@ -1,0 +1,35 @@
+{
+    "model_performance": {
+        "overall_metrics": {
+            "accuracy": 0.5,
+            "roc_auc": 0.5,
+            "log_loss": 0.6931471805599453
+        },
+        "class_metrics": {
+            "class_0": {
+                "precision": 0.5,
+                "recall": 1.0,
+                "f1": 0.6666666666666666
+            },
+            "class_1": {
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0
+            }
+        },
+        "confusion_matrix": {
+            "true_negatives": 1,
+            "false_positives": 0,
+            "false_negatives": 1,
+            "true_positives": 0
+        },
+        "derived_metrics": {
+            "balanced_accuracy": 0.5,
+            "precision_recall_ratio": 0,
+            "false_positive_rate": 0.0,
+            "false_negative_rate": 1.0
+        }
+    },
+    "evaluation_timestamp": "2025-02-26T02:34:15.764262",
+    "model_recommendation": "staging"
+}

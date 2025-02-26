@@ -1,0 +1,1 @@
+{"X_train": "   Total day minutes  ...  Voice mail plan\n0              120.5  ...                0\n1              150.3  ...                1\n\n[2 rows x 8 columns]", "y_train": "[0 1]", "model_version": "test_1.0"}

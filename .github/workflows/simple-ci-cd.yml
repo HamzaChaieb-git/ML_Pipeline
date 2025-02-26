@@ -189,7 +189,7 @@ jobs:
           echo "MLflow URL: $MLFLOW_URL"
           echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
           echo "MLflow is running. Access it at $MLFLOW_URL for 3 minutes."
-          sleep 180  # Keep MLflow alive for 3 minutes (180 seconds)
+          sleep 45  # Keep MLflow alive for 3 minutes (180 seconds)
           
           # Stop the ngrok tunnel for MLflow
           echo "Stopping ngrok tunnel for MLflow..."
@@ -217,7 +217,7 @@ jobs:
           echo "Streamlit URL: $STREAMLIT_URL"
           echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
           echo "Streamlit is running. Access it at $STREAMLIT_URL for 3 minutes."
-          sleep 180  # Keep Streamlit alive for 3 minutes (180 seconds)
+          sleep 45  # Keep Streamlit alive for 3 minutes (180 seconds)
 
       - name: Cleanup
         if: always()
@@ -230,8 +230,8 @@ jobs:
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
-          to: hitthetarget735@gmail.com  # Hardcoded recipient email
-          from: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME as sender
+          to: hitthetarget735@gmail.com
+          from: ${{ secrets.EMAIL_USERNAME }}
           subject: "CI/CD Pipeline Status - ${{ github.repository }} (Run #${{ github.run_number }})"
           body: |
             CI/CD Pipeline Status for ${{ github.repository }} (Run #${{ github.run_number }})
@@ -243,9 +243,8 @@ jobs:
 
             For more details, check the workflow run at:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-          server_address: smtp.gmail.com  # Hardcoded Gmail SMTP server
-          server_port: 587  # Hardcoded Gmail SMTP port for TLS
-          username: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME for SMTP
-          password: ${{ secrets.EMAIL_PASSWORD }}  # Use EMAIL_PASSWORD for SMTP
-          secure: true  # Use TLS
+          server_address: smtp.gmail.com
+          server_port: 465  # Changed to port 465 for implicit SSL (SMTPS)
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          secure: true  # Ensures SSL/TLS is used, default for port 465

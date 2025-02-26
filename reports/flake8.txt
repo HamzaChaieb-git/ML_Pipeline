@@ -1,0 +1,20 @@
+app.py:4:1: F401 'mlflow' imported but unused
+main.py:1:101: E501 line too long (102 > 100 characters)
+main.py:10:1: F401 'sys' imported but unused
+main.py:11:1: F401 'json' imported but unused
+main.py:12:1: F401 'shutil' imported but unused
+main.py:13:1: F401 'numpy as np' imported but unused
+main.py:14:1: F401 'sklearn.metrics.classification_report' imported but unused
+main.py:14:1: F401 'sklearn.metrics.confusion_matrix' imported but unused
+main.py:20:1: F401 'mlflow.models.signature.infer_signature' imported but unused
+model_evaluation.py:11:1: F401 'sklearn.metrics.calinski_harabasz_score' imported but unused
+model_evaluation.py:27:1: F401 'typing.Tuple' imported but unused
+model_training.py:8:1: F401 'typing.Tuple' imported but unused
+model_training.py:14:1: F401 'datetime.datetime' imported but unused
+model_training.py:205:101: E501 line too long (102 > 100 characters)
+model_training.py:208:101: E501 line too long (104 > 100 characters)
+streamlit_app.py:7:1: F401 'datetime.datetime' imported but unused
+streamlit_app.py:270:101: E501 line too long (111 > 100 characters)
+streamlit_app.py:318:101: E501 line too long (144 > 100 characters)
+streamlit_app.py:327:101: E501 line too long (111 > 100 characters)
+streamlit_app.py:331:101: E501 line too long (115 > 100 characters)
