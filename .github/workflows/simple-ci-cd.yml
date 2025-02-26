@@ -63,7 +63,11 @@ jobs:
 
       - name: Restore system dependencies
         run: |
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || true
+          sudo mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || sudo apt-get install -y ngrok jq curl
           mkdir -p /home/runner/.config/ngrok
           cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
 
@@ -118,7 +122,11 @@ jobs:
 
       - name: Restore system dependencies
         run: |
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || true
+          sudo mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || sudo apt-get install -y ngrok jq curl
           mkdir -p /home/runner/.config/ngrok
           cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
 
@@ -167,9 +175,18 @@ jobs:
 
       - name: Restore system dependencies
         run: |
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || true
+          sudo mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || sudo apt-get install -y ngrok jq curl
           mkdir -p /home/runner/.config/ngrok
           cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
+
+      - name: Verify ngrok installation
+        run: |
+          which ngrok || echo "ngrok not found in PATH"
+          ngrok --version || echo "ngrok command failed"
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
