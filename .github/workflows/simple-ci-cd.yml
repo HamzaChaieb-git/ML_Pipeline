@@ -228,7 +228,7 @@ jobs:
 
       - name: Send Email Notification
         if: always()
-        uses: actions/send-email@v1
+        uses: dawidd6/action-send-mail@v3
         with:
           to: hitthetarget735@gmail.com  # Hardcoded recipient email
           from: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME as sender
@@ -244,7 +244,8 @@ jobs:
             For more details, check the workflow run at:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-          smtp-server: smtp.gmail.com  # Hardcoded Gmail SMTP server
-          smtp-port: 587  # Hardcoded Gmail SMTP port for TLS
-          smtp-username: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME for SMTP
-          smtp-password: ${{ secrets.EMAIL_PASSWORD }}  # Use EMAIL_PASSWORD for SMTP
+          server_address: smtp.gmail.com  # Hardcoded Gmail SMTP server
+          server_port: 587  # Hardcoded Gmail SMTP port for TLS
+          username: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME for SMTP
+          password: ${{ secrets.EMAIL_PASSWORD }}  # Use EMAIL_PASSWORD for SMTP
+          secure: true  # Use TLS
