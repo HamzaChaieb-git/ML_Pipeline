@@ -2,11 +2,23 @@ import pytest
 import pandas as pd
 import numpy as np
 import os
-import mlflow  # Added import for mlflow
+import mlflow
+import tempfile
+import xgboost as xgb
 from model_training import train_model
 from model_evaluation import evaluate_model
 from sklearn.preprocessing import LabelEncoder
-import xgboost as xgb
+
+# Fixture to set up MLflow tracking URI in a temporary directory
+@pytest.fixture(autouse=True)
+def setup_mlflow_tracking(tmp_path):
+    # Set MLflow tracking URI to a temporary directory
+    temp_dir = tmp_path / "mlruns"
+    os.makedirs(temp_dir, exist_ok=True)
+    mlflow.set_tracking_uri(f"file://{temp_dir}")
+    yield
+    # Clean up (optional, but can help avoid permission issues in future runs)
+    # shutil.rmtree(temp_dir, ignore_errors=True)
 
 @pytest.fixture
 def trained_model_and_data(tmp_path):
@@ -31,11 +43,7 @@ def trained_model_and_data(tmp_path):
     model = train_model(X_train, y_train, model_version="test_1.0")
     return model, X_train, y_train
 
-def test_evaluate_model_metrics(trained_model_and_data, monkeypatch, tmp_path):
-    # Disable MLflow logging completely
-    monkeypatch.setattr(mlflow, "log_metrics", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "log_artifacts", lambda *args, **kwargs: None)
-    
+def test_evaluate_model_metrics(trained_model_and_data):
     model, X_test, y_test = trained_model_and_data
     metrics = evaluate_model(model, X_test, y_test)
     
@@ -46,32 +54,24 @@ def test_evaluate_model_metrics(trained_model_and_data, monkeypatch, tmp_path):
     assert metrics["accuracy"] >= 0 and metrics["accuracy"] <= 1, "Accuracy should be between 0 and 1"
     assert metrics["roc_auc"] >= 0 and metrics["roc_auc"] <= 1, "ROC AUC should be between 0 and 1"
 
-def test_evaluate_model_artifacts(trained_model_and_data, monkeypatch, tmp_path):
-    # Disable MLflow logging completely
-    monkeypatch.setattr(mlflow, "log_metrics", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "log_artifacts", lambda *args, **kwargs: None)
-    
+def test_evaluate_model_artifacts(trained_model_and_data, tmp_path):
     model, X_test, y_test = trained_model_and_data
     
-    # Set artifacts directory to a temporary path for testing
-    artifacts_base = tmp_path / "artifacts"
-    os.environ["ARTIFACTS_DIR"] = str(artifacts_base)
-    os.makedirs(artifacts_base / "evaluation", exist_ok=True)
+    # Set MLflow artifact root to a temporary directory
+    temp_artifacts = tmp_path / "artifacts"
+    os.makedirs(temp_artifacts, exist_ok=True)
+    mlflow.set_tracking_uri(f"file://{temp_artifacts}")
     
     metrics = evaluate_model(model, X_test, y_test)
     
-    # Find the latest evaluation subdirectory (if any)
-    evaluation_dir = os.path.join(artifacts_base, "evaluation")
-    subdirs = [d for d in os.listdir(evaluation_dir) if os.path.isdir(os.path.join(evaluation_dir, d))]
+    # Find the latest run directory in the temporary MLflow tracking URI
+    runs_dir = max([d for d in temp_artifacts.iterdir() if d.is_dir()], key=lambda x: x.stat().st_mtime)
+    artifact_dir = runs_dir / "artifacts" / "evaluation"
     
-    # If no subdirectories are created (due to no MLflow logging), check if metrics are still generated
-    assert isinstance(metrics, dict), "Metrics should still be generated even without MLflow"
+    assert isinstance(metrics, dict), "Metrics should still be generated"
     assert "accuracy" in metrics, "Accuracy should be in metrics"
     
-    if subdirs:  # Only check artifacts if they exist
-        latest_dir = max(subdirs, key=lambda x: os.path.getctime(os.path.join(evaluation_dir, x)))
-        artifact_dir = os.path.join(evaluation_dir, latest_dir)
-        
+    if artifact_dir.exists():  # Only check artifacts if they exist
         assert os.path.exists(os.path.join(artifact_dir, "performance_curves.html")), "Performance curves should be generated"
         assert os.path.exists(os.path.join(artifact_dir, "confusion_matrix.png")), "Confusion matrix should be generated"
         assert os.path.exists(os.path.join(artifact_dir, "evaluation_summary.json")), "Summary report should be generated"

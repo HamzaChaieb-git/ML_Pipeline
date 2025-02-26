@@ -2,10 +2,22 @@ import pytest
 import pandas as pd
 import numpy as np
 import os
-import mlflow  # Added import for mlflow
-from main import prepare_data_traced, train_model_traced, evaluate_model_traced, setup_enhanced_mlflow
+import mlflow
+import tempfile
+from main import prepare_data_traced, train_model_traced, evaluate_model_traced
 from sklearn.preprocessing import LabelEncoder
-import xgboost as xgb  # Import for type checking
+import xgboost as xgb
+
+# Fixture to set up MLflow tracking URI in a temporary directory
+@pytest.fixture(autouse=True)
+def setup_mlflow_tracking(tmp_path):
+    # Set MLflow tracking URI to a temporary directory
+    temp_dir = tmp_path / "mlruns"
+    os.makedirs(temp_dir, exist_ok=True)
+    mlflow.set_tracking_uri(f"file://{temp_dir}")
+    yield
+    # Clean up (optional, but can help avoid permission issues in future runs)
+    # shutil.rmtree(temp_dir, ignore_errors=True)
 
 # Fixture for sample data files
 @pytest.fixture
@@ -32,11 +44,7 @@ def sample_files(tmp_path):
     test_df.to_csv(test_file, index=False)
     return str(train_file), str(test_file)
 
-def test_prepare_data_traced(sample_files, monkeypatch):
-    # Disable MLflow logging completely
-    monkeypatch.setattr(mlflow, "log_params", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "log_dict", lambda *args, **kwargs: None)
-    
+def test_prepare_data_traced(sample_files):
     train_file, test_file = sample_files
     X_train, X_test, y_train, y_test = prepare_data_traced(train_file, test_file)
     
@@ -45,13 +53,7 @@ def test_prepare_data_traced(sample_files, monkeypatch):
     assert isinstance(y_train, np.ndarray), "y_train should be a numpy array"
     assert isinstance(y_test, np.ndarray), "y_test should be a numpy array"
 
-def test_train_model_traced(sample_files, monkeypatch):
-    # Disable MLflow logging completely
-    monkeypatch.setattr(mlflow, "log_params", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "log_metrics", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "log_artifact", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow.xgboost, "log_model", lambda *args, **kwargs: None)
-    
+def test_train_model_traced(sample_files):
     train_file, _ = sample_files
     df = pd.read_csv(train_file)
     X_train = df.drop("Churn", axis=1)
@@ -67,11 +69,7 @@ def test_train_model_traced(sample_files, monkeypatch):
     model = train_model_traced(X_train, y_train, model_version="test_1.0")
     assert isinstance(model, xgb.XGBClassifier), "Model should be an XGBClassifier"
 
-def test_evaluate_model_traced(sample_files, monkeypatch):
-    # Disable MLflow logging completely
-    monkeypatch.setattr(mlflow, "log_metrics", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "log_artifacts", lambda *args, **kwargs: None)
-    
+def test_evaluate_model_traced(sample_files):
     train_file, test_file = sample_files
     X_train, X_test, y_train, y_test = prepare_data_traced(train_file, test_file)
     
@@ -86,16 +84,3 @@ def test_evaluate_model_traced(sample_files, monkeypatch):
     
     assert isinstance(metrics, dict), "Metrics should be a dictionary"
     assert "accuracy" in metrics, "Accuracy should be in metrics"
-
-def test_setup_enhanced_mlflow(monkeypatch):
-    # Disable MLflow logging completely
-    monkeypatch.setattr(mlflow, "set_tracking_uri", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "get_experiment_by_name", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "create_experiment", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow, "set_experiment", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow.xgboost, "autolog", lambda *args, **kwargs: None)
-    monkeypatch.setattr(mlflow.sklearn, "autolog", lambda *args, **kwargs: None)
-    
-    # Since MLflow is disabled, this test can return a dummy value or skip MLflow-specific assertions
-    result = setup_enhanced_mlflow()
-    assert result is None or isinstance(result, str), "Should return None or a string (e.g., experiment ID)"

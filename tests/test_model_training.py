@@ -1,10 +1,22 @@
 import pytest
 import pandas as pd
 import numpy as np
-import xgboost as xgb
-from model_training import train_model
 import os
 import mlflow
+import tempfile
+import xgboost as xgb
+from model_training import train_model
+
+# Fixture to set up MLflow tracking URI in a temporary directory
+@pytest.fixture(autouse=True)
+def setup_mlflow_tracking(tmp_path):
+    # Set MLflow tracking URI to a temporary directory
+    temp_dir = tmp_path / "mlruns"
+    os.makedirs(temp_dir, exist_ok=True)
+    mlflow.set_tracking_uri(f"file://{temp_dir}")
+    yield
+    # Clean up (optional, but can help avoid permission issues in future runs)
+    # shutil.rmtree(temp_dir, ignore_errors=True)
 
 # Fixture for sample training data
 @pytest.fixture
@@ -22,37 +34,19 @@ def sample_train_data():
     y_train = np.array([0, 1])
     return X_train, y_train
 
-def test_train_model_returns_model(sample_train_data, monkeypatch):
-    # Mock mlflow to prevent actual logging during tests
-    monkeypatch.setattr(mlflow, "log_params", lambda params, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_metrics", lambda metrics, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_artifact", lambda path, run_id=None: None)
-    monkeypatch.setattr(mlflow.xgboost, "log_model", lambda model, path, signature=None, input_example=None, registered_model_name=None, run_id=None: None)
-    
+def test_train_model_returns_model(sample_train_data):
     X_train, y_train = sample_train_data
     model = train_model(X_train, y_train, model_version="test_1.0")
     assert isinstance(model, xgb.XGBClassifier), "Model should be an XGBClassifier"
     assert model is not None, "Model should not be None"
 
-def test_train_model_predicts(sample_train_data, monkeypatch):
-    # Mock mlflow to prevent actual logging during tests
-    monkeypatch.setattr(mlflow, "log_params", lambda params, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_metrics", lambda metrics, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_artifact", lambda path, run_id=None: None)
-    monkeypatch.setattr(mlflow.xgboost, "log_model", lambda model, path, signature=None, input_example=None, registered_model_name=None, run_id=None: None)
-    
+def test_train_model_predicts(sample_train_data):
     X_train, y_train = sample_train_data
     model = train_model(X_train, y_train, model_version="test_1.0")
     predictions = model.predict(X_train)
     assert len(predictions) == len(y_train), "Predictions should match input length"
     assert all(p in [0, 1] for p in predictions), "Predictions should be binary"
 
-def test_train_model_empty_data(monkeypatch):
-    # Mock mlflow to prevent actual logging during tests
-    monkeypatch.setattr(mlflow, "log_params", lambda params, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_metrics", lambda metrics, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_artifact", lambda path, run_id=None: None)
-    monkeypatch.setattr(mlflow.xgboost, "log_model", lambda model, path, signature=None, input_example=None, registered_model_name=None, run_id=None: None)
-    
+def test_train_model_empty_data():
     with pytest.raises(ValueError, match="Training data or labels cannot be empty"):
         train_model(pd.DataFrame(), np.array([]), model_version="test_1.0")

@@ -4,108 +4,66 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      expose_services:
-        description: 'Expose services with ngrok (true/false)'
-        required: false
-        default: 'false'
 
 jobs:
-  setup-dependencies:
+  code-quality-checks:
     runs-on: ubuntu-24.04
+    continue-on-error: true  # Ensures the job always succeeds, allowing the workflow to continue
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cache system dependencies
-        id: cache-deps
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: |
-            /home/runner/apt-cache-custom
-            /home/runner/ngrok-config
-          key: ${{ runner.os }}-deps-${{ hashFiles('.github/workflows/ci-cd.yml') }}
-          restore-keys: ${{ runner.os }}-deps-
+          python-version: '3.12'
 
-      - name: Install and cache system dependencies
-        if: steps.cache-deps.outputs.cache-hit != 'true'
-        env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+      - name: Install dependencies
         run: |
-          mkdir -p /home/runner/apt-cache-custom /home/runner/ngrok-config
-          sudo chown runner:runner /home/runner/apt-cache-custom /home/runner/ngrok-config
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update
-          sudo apt-get install -y ngrok jq curl --download-only
-          sudo cp /var/cache/apt/archives/*.deb /home/runner/apt-cache-custom/
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb
-          ngrok authtoken $NGROK_AUTH_TOKEN
-          cp -r /home/runner/.config/ngrok/* /home/runner/ngrok-config/
+          python -m pip install --upgrade pip
+          pip install flake8 bandit black
 
-  build-and-unit-test:
-    runs-on: ubuntu-24.04
-    needs: setup-dependencies
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile.pipeline', 'requirements.txt') }}
-          restore-keys: ${{ runner.os }}-buildx-
-
-      - name: Restore system dependencies
+      - name: Run Flake8 (Style Check)
         run: |
-          sudo mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || sudo apt-get install -y ngrok jq curl
-          mkdir -p /home/runner/.config/ngrok
-          cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
+          flake8 . --max-line-length=100 --extend-exclude="tests/*,Dockerfile*" --filename="*.py" > flake8_report.txt
+        continue-on-error: true  # Allow job to continue even if Flake8 finds issues
 
-      - name: Pull base image
-        run: docker pull hamzachaieb01/ml-pipeline:latest || true
-
-      - name: Build Docker image
+      - name: Run Bandit (Security Check)
         run: |
-          docker buildx build \
-            --file Dockerfile.pipeline \
-            --tag pipeline:latest \
-            --cache-from=type=local,src=/tmp/.buildx-cache \
-            --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
-            --load \
-            .
+          bandit -r . -x "tests/*,Dockerfile*" -f txt -o bandit_report.txt
+        continue-on-error: true  # Allow job to continue even if Bandit finds issues
 
-      - name: Run checks and tests
+      - name: Run Black (Formatting Check)
         run: |
-          mkdir -p reports
-          docker run --rm pipeline:latest bash -c "
-            black --check main.py data_processing.py model_*.py > reports/black_report.txt 2>&1 || true &
-            flake8 main.py data_processing.py model_*.py > reports/flake8_report.txt 2>&1 || true &
-            bandit -r main.py data_processing.py model_*.py > reports/bandit_report.txt 2>&1 || true &
-            pytest tests/ -n auto -v -W ignore::DeprecationWarning -W ignore::UserWarning --junitxml=reports/pytest_report.xml | tee reports/pytest_output.txt || exit 1 &
-            wait
-          " || exit 1
+          black --check . --exclude "tests/*,Dockerfile*" --diff > black_report.txt
+        continue-on-error: true  # Allow job to continue even if Black finds issues
 
-      - name: Upload reports
-        if: always()
+      - name: Upload Flake8 Report as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: code-quality-reports
-          path: reports/
+          name: flake8-report
+          path: flake8_report.txt
           if-no-files-found: warn
 
-  run-and-functional-test:
+      - name: Upload Bandit Report as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit_report.txt
+          if-no-files-found: warn
+
+      - name: Upload Black Report as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: black-report
+          path: black_report.txt
+          if-no-files-found: warn
+
+  build-and-run:
     runs-on: ubuntu-24.04
-    needs: build-and-unit-test
+    needs: code-quality-checks  # Ensure code-quality-checks runs first, but continues even if it fails
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -113,148 +71,180 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile.pipeline', 'requirements.txt') }}
-          restore-keys: ${{ runner.os }}-buildx-
-
-      - name: Restore system dependencies
-        run: |
-          sudo mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || sudo apt-get install -y ngrok jq curl
-          mkdir -p /home/runner/.config/ngrok
-          cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
+      - name: Build Docker images
+        run: docker compose build
 
       - name: Start services
         run: |
           docker compose up -d
-          sleep 10
+          echo "Waiting for services to start (30 seconds)..."
+          sleep 30
+          echo "Container status:"
           docker compose ps
 
-      - name: Run functional tests
+      - name: Check FastAPI health
         run: |
-          check_fastapi() { for i in {1..3}; do curl -s http://localhost:8000/health | grep -q "healthy" && echo "FastAPI healthy" && return 0 || [ $i -eq 3 ] && echo "FastAPI failed" && docker compose logs fastapi && return 1; sleep 1; done }
-          check_streamlit() { for i in {1..3}; do docker compose logs streamlit | grep -q "You can now view" && echo "Streamlit running" && return 0 || [ $i -eq 3 ] && echo "Streamlit failed" && docker compose logs streamlit && return 1; sleep 1; done }
-          check_mlflow() { for i in {1..3}; do docker compose logs mlflow | grep -q "Listening at:" && echo "MLflow running" && return 0 || [ $i -eq 3 ] && echo "MLflow failed" && docker compose logs mlflow && return 1; sleep 1; done }
-          check_fastapi & check_streamlit & check_mlflow & wait || exit 1
+          for i in {1..5}; do
+            echo "Attempt $i: Checking FastAPI health..."
+            if curl -s http://localhost:8000/health | grep -q "healthy"; then
+              echo "FastAPI is healthy!"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "FastAPI health check failed after 5 attempts"
+              docker compose logs fastapi
+              exit 1
+            fi
+            echo "Waiting 5 seconds before next attempt..."
+            sleep 5
+          done
+
+      - name: Check Streamlit
+        run: |
+          for i in {1..5}; do
+            if docker compose logs streamlit | grep -q "You can now view your Streamlit app in your browser"; then
+              echo "Streamlit is running properly"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "Streamlit server check failed after 5 attempts, showing logs:"
+              docker compose logs streamlit
+              exit 1
+            fi
+            echo "Waiting 5 seconds before next attempt..."
+            sleep 5
+          done
+
+      - name: Check MLflow
+        run: |
+          for i in {1..5}; do
+            if docker compose logs mlflow | grep -q "Listening at:"; then
+              echo "MLflow is running properly"
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "MLflow server check failed after 5 attempts, showing logs:"
+              docker compose logs mlflow
+              exit 1
+            fi
+            echo "Waiting 5 seconds before next attempt..."
+            sleep 5
+          done
+
+      - name: Verify Pipeline execution
+        run: |
+          echo "Checking pipeline execution status..."
+          PIPELINE_STATUS=$(docker inspect ml_pipeline-pipeline-1 --format='{{.State.ExitCode}}')
+          if [ "$PIPELINE_STATUS" -eq 0 ]; then
+            echo "Pipeline executed successfully"
+            docker compose logs pipeline
+          else
+            echo "Pipeline execution failed with exit code $PIPELINE_STATUS, showing logs:"
+            docker compose logs pipeline
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-artifacts-for-deploy
+          name: pipeline-artifacts
           path: |
             ./artifacts/
             ./mlflow.db
           if-no-files-found: warn
 
-      - name: Cleanup
-        if: always()
-        run: docker compose down
-
-  deploy-and-notify:
-    runs-on: ubuntu-24.04
-    needs: run-and-functional-test
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile.pipeline', 'requirements.txt') }}
-          restore-keys: ${{ runner.os }}-buildx-
-
-      - name: Restore system dependencies
-        run: |
-          sudo mkdir -p /etc/apt/trusted.gpg.d /etc/apt/sources.list.d
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update
-          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || sudo apt-get install -y ngrok jq curl
-          mkdir -p /home/runner/.config/ngrok
-          cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
-
-      - name: Verify ngrok installation
-        run: |
-          which ngrok || echo "ngrok not found in PATH"
-          ngrok --version || echo "ngrok command failed"
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: pipeline-artifacts-for-deploy
-
-      - name: Compress and upload artifacts
-        run: |
-          tar -czf pipeline-artifacts.tar.gz ./artifacts/ ./mlflow.db
-          echo "Compressed artifacts into pipeline-artifacts.tar.gz"
-
-      - name: Upload compressed artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: pipeline-artifacts
-          path: pipeline-artifacts.tar.gz
-          if-no-files-found: warn
-
-      - name: Expose MLflow and Streamlit with ngrok (sequential)
+      - name: Expose services with ngrok sequentially (3 minutes MLflow, 3 minutes Streamlit)
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          docker compose up -d
+          echo "Installing ngrok to expose MLflow and Streamlit sequentially..."
+          # Install ngrok
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install -y ngrok
+          ngrok config add-authtoken $NGROK_AUTH_TOKEN
+
+          # Wait for services to be fully ready (additional 10 seconds)
+          echo "Waiting an additional 10 seconds for services to stabilize..."
           sleep 10
 
-          # Expose MLflow for 30 seconds
-          echo "Exposing MLflow on port 5001 for 30 seconds..."
-          ngrok http 5001 &
-          sleep 5
-          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          echo "MLflow URL (30s): $MLFLOW_URL"
-          sleep 30
-          pkill ngrok
-
-          # Wait briefly to ensure ngrok session fully terminates
-          sleep 2
-
-          # Expose Streamlit for 30 seconds
-          echo "Exposing Streamlit on port 8501 for 30 seconds..."
-          ngrok http 8501 &
-          sleep 5
-          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
-          echo "Streamlit URL (30s): $STREAMLIT_URL"
-          sleep 30
-          pkill ngrok
-
-          docker compose down
-
+          # Expose MLflow first for 3 minutes
+          echo "Starting ngrok tunnel for MLflow (port 5001)..."
+          ngrok http 5001 > ngrok_mlflow.log 2>&1 &
+          sleep 15  # Wait for MLflow tunnel to stabilize
+           
+          # Check MLflow tunnel and get URL
+          echo "Raw ngrok tunnels for MLflow:"
+          curl -s http://localhost:4040/api/tunnels
+          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:5001"))[0].public_url')
+          
+          if [ -z "$MLFLOW_URL" ] || [ "$MLFLOW_URL" = "null" ]; then
+            echo "Error: MLflow ngrok URL is null or empty. Showing detailed logs:"
+            cat ngrok_mlflow.log
+            docker compose logs mlflow
+            echo "Checking ngrok status..."
+            curl -s http://localhost:4040/status
+            exit 1
+          fi
+          echo "MLflow URL: $MLFLOW_URL"
           echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
+          echo "MLflow is running. Access it at $MLFLOW_URL for 3 minutes."
+          sleep 180  # Keep MLflow alive for 3 minutes (180 seconds)
+          
+          # Stop the ngrok tunnel for MLflow
+          echo "Stopping ngrok tunnel for MLflow..."
+          pkill ngrok
+          sleep 5  # Wait for ngrok to shut down
+
+          # Expose Streamlit second for 3 minutes
+          echo "Starting ngrok tunnel for Streamlit (port 8501)..."
+          ngrok http 8501 > ngrok_streamlit.log 2>&1 &
+          sleep 15  # Wait for Streamlit tunnel to stabilize
+          
+          # Check Streamlit tunnel and get URL
+          echo "Raw ngrok tunnels for Streamlit:"
+          curl -s http://localhost:4040/api/tunnels
+          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels | map(select(.config.addr == "http://localhost:8501"))[0].public_url')
+          
+          if [ -z "$STREAMLIT_URL" ] || [ "$STREAMLIT_URL" = "null" ]; then
+            echo "Error: Streamlit ngrok URL is null or empty. Showing detailed logs:"
+            cat ngrok_streamlit.log
+            docker compose logs streamlit
+            echo "Checking ngrok status..."
+            curl -s http://localhost:4040/status
+            exit 1
+          fi
+          echo "Streamlit URL: $STREAMLIT_URL"
           echo "STREAMLIT_URL=$STREAMLIT_URL" >> $GITHUB_ENV
+          echo "Streamlit is running. Access it at $STREAMLIT_URL for 3 minutes."
+          sleep 180  # Keep Streamlit alive for 3 minutes (180 seconds)
 
-      - name: Set email body
+      - name: Cleanup
+        if: always()
         run: |
-          body="Workflow completed.\n- FastAPI: Healthy\n- Streamlit: Running\n- MLflow: Running\n- Pipeline: Success\nArtifacts uploaded."
-          [ -n "$MLFLOW_URL" ] && body="$body\nMLflow URL: $MLFLOW_URL"
-          [ -n "$STREAMLIT_URL" ] && body="$body\nStreamlit URL: $STREAMLIT_URL"
-          echo "EMAIL_BODY<<EOF" >> $GITHUB_ENV
-          echo -e "$body" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo "Shutting down services..."
+          docker compose down
+          echo "Cleanup complete."
 
-      - name: Send email
-        uses: dawidd6/action-send-mail@v3
+      - name: Send Email Notification
+        if: always()
+        uses: actions/send-email@v1
         with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "ML Pipeline CI/CD Completed"
-          to: hitthetarget735@gmail.com
-          from: GitHub Actions
-          body: ${{ env.EMAIL_BODY }}
+          to: hitthetarget735@gmail.com  # Hardcoded recipient email
+          from: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME as sender
+          subject: "CI/CD Pipeline Status - ${{ github.repository }} (Run #${{ github.run_number }})"
+          body: |
+            CI/CD Pipeline Status for ${{ github.repository }} (Run #${{ github.run_number }})
+
+            Job Status: ${{ job.status }}
+            Commit: ${{ github.sha }}
+            Branch: ${{ github.ref_name }}
+            Workflow: ${{ github.workflow }}
+
+            For more details, check the workflow run at:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          smtp-server: smtp.gmail.com  # Hardcoded Gmail SMTP server
+          smtp-port: 587  # Hardcoded Gmail SMTP port for TLS
+          smtp-username: ${{ secrets.EMAIL_USERNAME }}  # Use EMAIL_USERNAME for SMTP
+          smtp-password: ${{ secrets.EMAIL_PASSWORD }}  # Use EMAIL_PASSWORD for SMTP

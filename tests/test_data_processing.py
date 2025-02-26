@@ -1,9 +1,22 @@
 import pytest
 import pandas as pd
 import numpy as np
-from data_processing import prepare_data
 import os
 import mlflow
+import tempfile
+from data_processing import prepare_data
+from sklearn.preprocessing import LabelEncoder
+
+# Fixture to set up MLflow tracking URI in a temporary directory
+@pytest.fixture(autouse=True)
+def setup_mlflow_tracking(tmp_path):
+    # Set MLflow tracking URI to a temporary directory
+    temp_dir = tmp_path / "mlruns"
+    os.makedirs(temp_dir, exist_ok=True)
+    mlflow.set_tracking_uri(f"file://{temp_dir}")
+    yield
+    # Clean up (optional, but can help avoid permission issues in future runs)
+    # shutil.rmtree(temp_dir, ignore_errors=True)
 
 # Fixture for sample data (mimics your churn CSV structure)
 @pytest.fixture
@@ -31,11 +44,7 @@ def sample_data(tmp_path):
     test_df.to_csv(test_file, index=False)
     return str(train_file), str(test_file)
 
-def test_prepare_data_output_shapes(sample_data, monkeypatch):
-    # Mock mlflow to prevent actual logging during tests
-    monkeypatch.setattr(mlflow, "log_params", lambda params, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_dict", lambda data, path, run_id=None: None)
-    
+def test_prepare_data_output_shapes(sample_data):
     train_file, test_file = sample_data
     X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
     
@@ -47,11 +56,7 @@ def test_prepare_data_output_shapes(sample_data, monkeypatch):
     assert X_test.shape[0] == y_test.shape[0], "X_test and y_test should have the same number of rows"
     assert len(X_train.columns) == 8, "X_train should have 8 features"
 
-def test_prepare_data_categorical_encoding(sample_data, monkeypatch):
-    # Mock mlflow to prevent actual logging during tests
-    monkeypatch.setattr(mlflow, "log_params", lambda params, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_dict", lambda data, path, run_id=None: None)
-    
+def test_prepare_data_categorical_encoding(sample_data):
     train_file, test_file = sample_data
     X_train, X_test, y_train, y_test = prepare_data(train_file, test_file)
     
@@ -66,11 +71,7 @@ def test_prepare_data_missing_files():
     with pytest.raises(FileNotFoundError, match="Could not find data files:"):
         prepare_data("nonexistent_train.csv", "nonexistent_test.csv")
 
-def test_prepare_data_missing_columns(sample_data, monkeypatch):
-    # Mock mlflow to prevent actual logging during tests
-    monkeypatch.setattr(mlflow, "log_params", lambda params, run_id=None: None)
-    monkeypatch.setattr(mlflow, "log_dict", lambda data, path, run_id=None: None)
-    
+def test_prepare_data_missing_columns(sample_data):
     train_file, _ = sample_data
     df = pd.read_csv(train_file)
     df.drop("Churn", axis=1, inplace=True)  # Remove required column

@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Install streamlit and plotly (and ensure they’re available in PATH)
 # Use Bash explicitly and . (dot) instead of source for compatibility
-RUN pip install --no-cache-dir streamlit==1.32.2 plotly==5.18.0 && \
+RUN pip install streamlit==1.32.2 plotly==5.18.0 && \
     echo 'export PATH="$PATH:/usr/local/bin"' >> ~/.bashrc && \
     /bin/bash -c "source ~/.bashrc"
 
