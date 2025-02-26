@@ -15,13 +15,16 @@ jobs:
   setup-dependencies:
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Cache system dependencies
         id: cache-deps
         uses: actions/cache@v4
         with:
           path: |
-            /home/runner/.apt-cache
-            /home/runner/.ngrok
+            /home/runner/apt-cache-custom
+            /home/runner/ngrok-config
           key: ${{ runner.os }}-deps-${{ hashFiles('.github/workflows/ci-cd.yml') }}
           restore-keys: ${{ runner.os }}-deps-
 
@@ -30,16 +33,15 @@ jobs:
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          sudo mkdir -p /home/runner/.apt-cache
-          sudo cp -r /var/cache/apt/archives/* /home/runner/.apt-cache/ 2>/dev/null || true
+          mkdir -p /home/runner/apt-cache-custom /home/runner/ngrok-config
+          sudo chown runner:runner /home/runner/apt-cache-custom /home/runner/ngrok-config
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt-get update
-          sudo apt-get install -y ngrok jq curl
-          sudo cp -r /var/cache/apt/archives/* /home/runner/.apt-cache/
-          mkdir -p /home/runner/.ngrok
+          sudo apt-get install -y ngrok jq curl --download-only -o /home/runner/apt-cache-custom/
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb
           ngrok authtoken $NGROK_AUTH_TOKEN
-          cp -r /home/runner/.config/ngrok /home/runner/.ngrok/
+          cp -r /home/runner/.config/ngrok/* /home/runner/ngrok-config/
 
   build-and-unit-test:
     runs-on: ubuntu-24.04
@@ -59,7 +61,10 @@ jobs:
           restore-keys: ${{ runner.os }}-buildx-
 
       - name: Restore system dependencies
-        run: sudo cp -r /home/runner/.apt-cache/* /var/cache/apt/archives/ 2>/dev/null || true
+        run: |
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || true
+          mkdir -p /home/runner/.config/ngrok
+          cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
 
       - name: Pull base image
         run: docker pull hamzachaieb01/ml-pipeline:latest || true
@@ -111,7 +116,10 @@ jobs:
           restore-keys: ${{ runner.os }}-buildx-
 
       - name: Restore system dependencies
-        run: sudo cp -r /home/runner/.apt-cache/* /var/cache/apt/archives/ 2>/dev/null || true
+        run: |
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || true
+          mkdir -p /home/runner/.config/ngrok
+          cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
 
       - name: Start services
         run: |
@@ -158,8 +166,9 @@ jobs:
 
       - name: Restore system dependencies
         run: |
-          sudo cp -r /home/runner/.apt-cache/* /var/cache/apt/archives/ 2>/dev/null || true
-          sudo cp -r /home/runner/.ngrok/ngrok /home/runner/.config/ngrok/ 2>/dev/null || true
+          sudo dpkg -i /home/runner/apt-cache-custom/*.deb 2>/dev/null || true
+          mkdir -p /home/runner/.config/ngrok
+          cp -r /home/runner/ngrok-config/* /home/runner/.config/ngrok/ 2>/dev/null || true
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -178,37 +187,34 @@ jobs:
           path: pipeline-artifacts.tar.gz
           if-no-files-found: warn
 
-      - name: Expose MLflow and Streamlit with ngrok
+      - name: Expose MLflow and Streamlit with ngrok (sequential)
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
           docker compose up -d
           sleep 10
 
-          # Create ngrok config for multiple tunnels
-          cat <<EOF > ngrok.yml
-          authtoken: $NGROK_AUTH_TOKEN
-          tunnels:
-            mlflow:
-              proto: http
-              addr: 5001
-            streamlit:
-              proto: http
-              addr: 8501
-          EOF
-
-          # Start ngrok with config
-          ngrok start --all --config ngrok.yml &
+          # Expose MLflow for 30 seconds
+          echo "Exposing MLflow on port 5001 for 30 seconds..."
+          ngrok http 5001 &
           sleep 5
-
-          # Extract URLs
-          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.name == "mlflow") | .public_url')
-          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[] | select(.name == "streamlit") | .public_url')
+          MLFLOW_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
           echo "MLflow URL (30s): $MLFLOW_URL"
-          echo "Streamlit URL (30s): $STREAMLIT_URL"
-
           sleep 30
           pkill ngrok
+
+          # Wait briefly to ensure ngrok session fully terminates
+          sleep 2
+
+          # Expose Streamlit for 30 seconds
+          echo "Exposing Streamlit on port 8501 for 30 seconds..."
+          ngrok http 8501 &
+          sleep 5
+          STREAMLIT_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "Streamlit URL (30s): $STREAMLIT_URL"
+          sleep 30
+          pkill ngrok
+
           docker compose down
 
           echo "MLFLOW_URL=$MLFLOW_URL" >> $GITHUB_ENV
