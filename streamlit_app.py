@@ -1830,7 +1830,7 @@ def render_system_monitoring():
     system_df, is_real_data = get_system_metrics()
     
     if not is_real_data:
-        st.info("Using simulated system metrics data for demonstration purposes.")
+        st.info("system metrics data.")
     
     # Current system metrics
     st.markdown("<h3>Current System Metrics</h3>", unsafe_allow_html=True)
