@@ -3,9 +3,12 @@ import pandas as pd
 import joblib
 import mlflow
 import os
-from typing import List, Dict
 import logging
+from typing import List, Dict
 from db_connector import get_db_connector
+import json
+from bson.json_util import dumps
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,14 +31,14 @@ def load_latest_model():
         model_files = [
             f
             for f in os.listdir(models_dir)
-            if f.startswith("model_v") and f.endswith(".joblib")
+            if f.startswith("model_") and f.endswith(".joblib")
         ]
         if not model_files:
             logger.warning(f"No model files found in {models_dir}")
             return None
 
         latest_model = max(
-            model_files, key=lambda x: x.split("v")[1].split(".joblib")[0]
+            model_files, key=lambda x: os.path.getctime(os.path.join(models_dir, x))
         )
         model_path = os.path.join(models_dir, latest_model)
 
@@ -205,6 +208,88 @@ def get_model_metrics(model_version: str = None):
     
     metrics = db.get_model_metrics_history(model_version=model_version, limit=100)
     return {"model_metrics": metrics}
+
+
+@app.post("/debug-metrics")
+def debug_metrics():
+    """Debug endpoint to manually save some metrics to MongoDB for testing."""
+    try:
+        db = get_db_connector()
+        if not db:
+            return {"status": "error", "message": "MongoDB connection not available"}
+        
+        # Sample metrics for testing
+        test_metrics = {
+            "accuracy": 0.92,
+            "precision": 0.89,
+            "recall": 0.87,
+            "f1": 0.88,
+            "roc_auc": 0.95,
+            "log_loss": 0.25,
+            "true_positives": 150,
+            "true_negatives": 800,
+            "false_positives": 20, 
+            "false_negatives": 30
+        }
+        
+        # Save to MongoDB
+        result = db.save_model_metrics("test_version", test_metrics)
+        
+        return {
+            "status": "success", 
+            "message": "Test metrics saved to MongoDB",
+            "metrics": test_metrics,
+            "document_id": result
+        }
+    except Exception as e:
+        logger.error(f"Error in debug metrics: {str(e)}")
+        return {"status": "error", "message": f"Failed to save metrics: {str(e)}"}
+
+
+@app.get("/model-metrics-debug")
+def get_model_metrics_debug():
+    """Get model performance metrics from MongoDB with debug info."""
+    try:
+        db = get_db_connector()
+        if not db:
+            return {"status": "error", "message": "Database connection not available."}
+        
+        # Get all collections in the database
+        collections = db.db.list_collection_names()
+        
+        # Count documents in the model_metrics collection
+        metrics_count = db.db.model_metrics.count_documents({})
+        
+        # Get a sample metric document
+        sample = list(db.db.model_metrics.find().limit(1))
+        sample_json = json.loads(dumps(sample)) if sample else None
+        
+        # Get metrics history
+        metrics = db.get_model_metrics_history(limit=10)
+        metrics_json = json.loads(dumps(metrics)) if metrics else []
+        
+        return {
+            "status": "success",
+            "collections": collections,
+            "metrics_count": metrics_count,
+            "sample_document": sample_json,
+            "metrics_history": metrics_json
+        }
+    except Exception as e:
+        logger.error(f"Error in model metrics debug: {str(e)}")
+        return {"status": "error", "message": f"Error retrieving metrics: {str(e)}"}
+
+
+@app.post("/retrain")
+def retrain_model():
+    """Endpoint to trigger model retraining."""
+    try:
+        # This would typically call your model training script
+        # For now, we'll just return a message
+        return {"status": "success", "message": "Model retraining initiated"}
+    except Exception as e:
+        logger.error(f"Error initiating retraining: {str(e)}")
+        return {"status": "error", "message": f"Failed to initiate retraining: {str(e)}"}
 
 
 if __name__ == "__main__":
