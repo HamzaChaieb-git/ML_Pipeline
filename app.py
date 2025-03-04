@@ -5,6 +5,7 @@ import mlflow
 import os
 from typing import List, Dict
 import logging
+from db_connector import get_db_connector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -151,6 +152,26 @@ def predict(churn_data: Dict[str, List[float]]):
         predictions = model.predict_proba(input_df)[
             :, 1
         ]  # Probability of churn (class 1)
+        
+        # Get model info
+        model_info = getattr(model, "model_info", {"version": "unknown"})
+        model_version = model_info.get("version", "unknown")
+        
+        # Store predictions in MongoDB
+        db = get_db_connector()
+        if db:
+            for i, row in input_df.iterrows():
+                # Convert row to dictionary for storage
+                features_dict = row.to_dict()
+                # Store prediction
+                db.save_prediction(
+                    model_version=model_version,
+                    features=features_dict,
+                    prediction=float(predictions[i])
+                )
+            logger.info("Stored predictions in MongoDB")
+        else:
+            logger.warning("MongoDB connection not available, predictions not stored")
 
         logger.info(f"Prediction successful: {predictions.tolist()}")
         return {"churn_probabilities": predictions.tolist()}
@@ -158,6 +179,32 @@ def predict(churn_data: Dict[str, List[float]]):
     except Exception as e:
         logger.error(f"Prediction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+
+@app.get("/recent-predictions")
+def get_recent_predictions(limit: int = 10):
+    """Get recent predictions from MongoDB."""
+    db = get_db_connector()
+    if not db:
+        raise HTTPException(
+            status_code=503, detail="Database connection not available."
+        )
+    
+    predictions = db.get_recent_predictions(limit=limit)
+    return {"recent_predictions": predictions}
+
+
+@app.get("/model-metrics")
+def get_model_metrics(model_version: str = None):
+    """Get model performance metrics from MongoDB."""
+    db = get_db_connector()
+    if not db:
+        raise HTTPException(
+            status_code=503, detail="Database connection not available."
+        )
+    
+    metrics = db.get_model_metrics_history(model_version=model_version, limit=100)
+    return {"model_metrics": metrics}
 
 
 if __name__ == "__main__":

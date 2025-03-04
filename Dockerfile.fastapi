@@ -4,13 +4,15 @@ FROM hamzachaieb01/ml-pipeline:latest
 # Set working directory
 WORKDIR /app
 
-# Install curl for health checks
+# Install curl for health checks and pymongo for database connection
 RUN apt-get update && \
     apt-get install -y curl && \
+    pip install pymongo && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy application files (assuming they aren't already in the base image)
+# Copy application files
 COPY app.py .
+COPY db_connector.py .
 
 # Make sure artifacts directory exists
 RUN mkdir -p /app/artifacts/models

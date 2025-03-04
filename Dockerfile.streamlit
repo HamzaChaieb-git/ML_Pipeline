@@ -4,14 +4,14 @@ FROM hamzachaieb01/ml-pipeline:latest
 # Set working directory
 WORKDIR /app
 
-# Install streamlit and plotly (and ensure they’re available in PATH)
-# Use Bash explicitly and . (dot) instead of source for compatibility
-RUN pip install streamlit==1.32.2 plotly==5.18.0 && \
+# Install streamlit, plotly, pymongo and other required dependencies
+RUN pip install streamlit==1.32.2 plotly==5.18.0 pymongo requests && \
     echo 'export PATH="$PATH:/usr/local/bin"' >> ~/.bashrc && \
     /bin/bash -c "source ~/.bashrc"
 
-# Copy application files (assuming they aren't already in the base image)
+# Copy application files
 COPY streamlit_app.py .
+COPY db_connector.py .
 COPY artifacts/ /app/artifacts/
 
 # Expose port 8501

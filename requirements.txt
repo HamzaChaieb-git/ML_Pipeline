@@ -1,8 +1,37 @@
-seaborn==0.13.2
-plotly==5.18.0
-pytest==8.3.2
-pytest-xdist==3.6.1
-black==24.8.0
-flake8==7.1.1
-bandit==1.7.9
-streamlit==1.32.2
+# Core ML libraries
+pandas
+numpy
+scikit-learn
+xgboost
+
+# MLflow for experiment tracking
+mlflow
+protobuf
+
+# API and serving
+fastapi
+uvicorn
+pydantic
+joblib
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Web UI
+streamlit
+
+# Testing
+pytest
+pytest-xdist
+pytest-html
+
+# Code quality & formatting
+black
+flake8
+bandit
+
+# Additional utilities
+requests
+typing-extensions

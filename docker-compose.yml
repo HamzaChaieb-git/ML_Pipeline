@@ -50,6 +50,23 @@ services:
       retries: 3
       start_period: 15s
 
+  monitoring:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitoring
+    volumes:
+      - ./artifacts:/app/artifacts  # Use relative path for artifacts
+      - ./monitoring.py:/app/monitoring.py  # Mount monitoring script
+    ports:
+      - "8502:8502"  # For future monitoring dashboard
+    depends_on:
+      - mlflow
+    networks:
+      - app_network
+    environment:
+      - MONITOR_INTERVAL=60  # Monitor every 60 seconds
+      - MONITOR_DURATION=86400  # Run for 24 hours by default
+
   pipeline:
     build:
       context: .
@@ -65,6 +82,25 @@ services:
     networks:
       - app_network
 
+  # Add a MongoDB service for storing predictions
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  mongo_data:
