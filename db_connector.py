@@ -110,7 +110,7 @@ class MongoDBConnector:
     
     def get_system_metrics_history(self, hours: int = 24, limit: int = 1000) -> List[Dict]:
         """Get system metrics for the last N hours."""
-        start_time = datetime.now() - datetime(hours=hours)
+        start_time = datetime.now() - datetime.timedelta(hours=hours)
         query = {"timestamp": {"$gte": start_time}}
             
         return list(self.system_metrics.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit))

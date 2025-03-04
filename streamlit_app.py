@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import json
 import pymongo
 from bson.json_util import dumps
+import numpy as np
 
 # Set page configuration for a clean, professional dashboard
 st.set_page_config(
@@ -75,6 +76,38 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# Safe timestamp parsing function
+def safe_parse_timestamp(timestamp_data):
+    """
+    Safely parse MongoDB timestamp data which can come in different formats:
+    - As a dict with "$date" key (from JSON serialization)
+    - As a millisecond timestamp
+    - As an ISO string
+    """
+    if not timestamp_data:
+        return None
+        
+    if isinstance(timestamp_data, dict):
+        # Handle MongoDB extended JSON format
+        if "$date" in timestamp_data:
+            if isinstance(timestamp_data["$date"], int):
+                # Millisecond timestamp
+                return pd.to_datetime(timestamp_data["$date"], unit='ms')
+            elif isinstance(timestamp_data["$date"], str):
+                # ISO format string
+                return pd.to_datetime(timestamp_data["$date"])
+    elif isinstance(timestamp_data, str):
+        # Try to parse as ISO format
+        try:
+            return pd.to_datetime(timestamp_data)
+        except:
+            return None
+    elif isinstance(timestamp_data, int):
+        # Assume millisecond timestamp
+        return pd.to_datetime(timestamp_data, unit='ms')
+            
+    return None
+
 # MongoDB connection helper
 def get_mongodb_connection():
     """Connect to MongoDB and return client or None if connection fails"""
@@ -105,13 +138,13 @@ def load_latest_model():
     model_files = [
         f
         for f in os.listdir(models_dir)
-        if f.startswith("model_v") and f.endswith(".joblib")
+        if f.startswith("model_") and f.endswith(".joblib")
     ]
     if not model_files:
         st.error("No model files found in artifacts/models.")
         return None
 
-    latest_model = max(model_files, key=lambda x: x.split("v")[1].split(".joblib")[0])
+    latest_model = max(model_files, key=lambda x: os.path.getctime(os.path.join(models_dir, x)))
     model_path = os.path.join(models_dir, latest_model)
     try:
         model = joblib.load(model_path)
@@ -167,6 +200,29 @@ def get_predictions_from_mongodb(limit=50):
         if client:
             client.close()
 
+# Process predictions into a DataFrame with proper timestamp handling
+def process_predictions_dataframe(predictions):
+    """Process predictions data from MongoDB into a DataFrame with proper timestamp handling"""
+    if not predictions:
+        return pd.DataFrame()
+        
+    # Convert to DataFrame
+    predictions_df = pd.DataFrame([
+        {
+            "timestamp": safe_parse_timestamp(p.get("timestamp")),
+            "model_version": p.get("model_version", "Unknown"),
+            "prediction": p.get("prediction", 0),
+            "features": p.get("features", {})
+        }
+        for p in predictions
+    ])
+    
+    # Drop rows with None timestamps
+    if not predictions_df.empty:
+        predictions_df = predictions_df.dropna(subset=["timestamp"])
+    
+    return predictions_df
+
 # Get model metrics from MongoDB
 def get_model_metrics_from_mongodb():
     """Fetch model metrics from MongoDB"""
@@ -186,6 +242,28 @@ def get_model_metrics_from_mongodb():
     finally:
         if client:
             client.close()
+
+# Process model metrics data
+def process_model_metrics_dataframe(model_metrics):
+    """Process model metrics data from MongoDB into a DataFrame with proper timestamp handling"""
+    if not model_metrics:
+        return pd.DataFrame()
+    
+    # Convert to DataFrame
+    metrics_df = pd.DataFrame([
+        {
+            "timestamp": safe_parse_timestamp(m.get("timestamp")),
+            "model_version": m.get("model_version", "Unknown"),
+            **(m.get("metrics", {}))
+        }
+        for m in model_metrics
+    ])
+    
+    # Handle any None values from timestamp parsing
+    if not metrics_df.empty:
+        metrics_df = metrics_df.dropna(subset=["timestamp"])
+    
+    return metrics_df
 
 # Main Dashboard Layout
 st.title("🔮 Churn Prediction Dashboard")
@@ -223,33 +301,40 @@ if page == "Dashboard":
     
     # Try to get metrics from MongoDB
     model_metrics = get_model_metrics_from_mongodb()
-    latest_metrics = next(iter(model_metrics), {}).get("metrics", {}) if model_metrics else {}
+    
+    # Process metrics data with safe timestamp handling
+    metrics_df = process_model_metrics_dataframe(model_metrics)
+    
+    # Get latest metrics
+    latest_metrics = {}
+    if not metrics_df.empty:
+        latest_metrics = metrics_df.iloc[0].to_dict()
     
     with col1:
         st.metric(
             "Accuracy", 
-            f"{latest_metrics.get('accuracy', 0):.2%}" if latest_metrics else "No data",
+            f"{latest_metrics.get('accuracy', 0):.2%}" if 'accuracy' in latest_metrics else "No data",
             delta=None
         )
     
     with col2:
         st.metric(
             "ROC AUC", 
-            f"{latest_metrics.get('roc_auc', 0):.2%}" if latest_metrics else "No data",
+            f"{latest_metrics.get('roc_auc', 0):.2%}" if 'roc_auc' in latest_metrics else "No data",
             delta=None
         )
     
     with col3:
         st.metric(
             "Precision", 
-            f"{latest_metrics.get('precision', 0):.2%}" if latest_metrics else "No data", 
+            f"{latest_metrics.get('precision', 0):.2%}" if 'precision' in latest_metrics else "No data", 
             delta=None
         )
     
     with col4:
         st.metric(
             "Recall", 
-            f"{latest_metrics.get('recall', 0):.2%}" if latest_metrics else "No data",
+            f"{latest_metrics.get('recall', 0):.2%}" if 'recall' in latest_metrics else "No data",
             delta=None
         )
     
@@ -259,14 +344,10 @@ if page == "Dashboard":
     # Get recent predictions
     predictions = get_predictions_from_mongodb(10)
     
-    if predictions:
-        # Convert to DataFrame
-        predictions_df = pd.DataFrame(predictions)
-        
-        # Extract timestamps
-        if 'timestamp' in predictions_df.columns:
-            predictions_df['timestamp'] = pd.to_datetime(predictions_df['timestamp']['$date'], unit='ms')
-        
+    # Process predictions with safe timestamp handling
+    predictions_df = process_predictions_dataframe(predictions)
+    
+    if not predictions_df.empty:
         # Create bar chart of recent prediction probabilities
         fig = px.bar(
             predictions_df,
@@ -458,28 +539,24 @@ elif page == "Model Performance":
     # Get model metrics from MongoDB
     model_metrics = get_model_metrics_from_mongodb()
     
-    if model_metrics:
-        # Convert to DataFrame
-        metrics_df = pd.DataFrame([
-            {
-                "timestamp": pd.to_datetime(m["timestamp"]["$date"], unit='ms') if "$date" in m.get("timestamp", {}) else "Unknown",
-                "model_version": m.get("model_version", "Unknown"),
-                **m.get("metrics", {})
-            }
-            for m in model_metrics
-        ])
-        
+    # Process metrics with safe timestamp handling
+    metrics_df = process_model_metrics_dataframe(model_metrics)
+    
+    if not metrics_df.empty:
         # Metrics over time visualization
         st.subheader("Key Metrics Over Time")
         
         # Select metrics to display
+        metric_columns = [col for col in metrics_df.columns if col not in ["timestamp", "model_version"]]
+        default_metrics = ["accuracy", "roc_auc"] if all(m in metric_columns for m in ["accuracy", "roc_auc"]) else metric_columns[:2]
+        
         selected_metrics = st.multiselect(
             "Select metrics to display:",
-            ["accuracy", "precision", "recall", "f1", "roc_auc"],
-            default=["accuracy", "roc_auc"]
+            metric_columns,
+            default=default_metrics
         )
         
-        if selected_metrics and not metrics_df.empty:
+        if selected_metrics:
             # Create time series plot
             fig = px.line(
                 metrics_df,
@@ -503,9 +580,10 @@ elif page == "Model Performance":
         # Confusion matrix visualization from latest metrics
         st.subheader("Latest Confusion Matrix")
         
-        latest_metrics = metrics_df.iloc[0] if not metrics_df.empty else {}
+        latest_metrics = metrics_df.iloc[0].to_dict() if not metrics_df.empty else {}
+        required_cm_fields = ["true_positives", "false_positives", "true_negatives", "false_negatives"]
         
-        if all(k in latest_metrics for k in ["true_positives", "false_positives", "true_negatives", "false_negatives"]):
+        if all(k in latest_metrics for k in required_cm_fields):
             confusion_data = [
                 [latest_metrics["true_negatives"], latest_metrics["false_positives"]],
                 [latest_metrics["false_negatives"], latest_metrics["true_positives"]]
@@ -530,9 +608,15 @@ elif page == "Model Performance":
         
         # Display all metrics in a data table
         st.subheader("All Model Versions and Metrics")
+       
+        # Filter columns for display
+        display_cols = ["timestamp", "model_version"]
+        metric_cols = ["accuracy", "precision", "recall", "f1", "roc_auc"]
+        for col in metric_cols:
+            if col in metrics_df.columns:
+                display_cols.append(col)
+        
         if not metrics_df.empty:
-            # Filter columns for display
-            display_cols = ["timestamp", "model_version", "accuracy", "precision", "recall", "f1", "roc_auc"]
             display_df = metrics_df[display_cols].copy()
             
             # Format timestamp
@@ -557,18 +641,10 @@ elif page == "Recent Predictions":
     # Get predictions from MongoDB
     predictions = get_predictions_from_mongodb(num_predictions)
     
-    if predictions:
-        # Convert to DataFrame
-        predictions_df = pd.DataFrame([
-            {
-                "timestamp": pd.to_datetime(p["timestamp"]["$date"], unit='ms') if "$date" in p.get("timestamp", {}) else "Unknown",
-                "model_version": p.get("model_version", "Unknown"),
-                "prediction": p.get("prediction", 0),
-                "features": p.get("features", {})
-            }
-            for p in predictions
-        ])
-        
+    # Process predictions with safe timestamp handling
+    predictions_df = process_predictions_dataframe(predictions)
+    
+    if not predictions_df.empty:
         # Summary statistics
         st.subheader("Prediction Statistics")
         col1, col2, col3 = st.columns(3)
@@ -623,20 +699,32 @@ elif page == "Recent Predictions":
         st.subheader("Detailed Predictions")
         
         # Extract feature columns if available
-        if predictions_df.empty or 'features' not in predictions_df.columns:
-            st.warning("No detailed feature data available")
+        if 'features' in predictions_df.columns:
+            # Check if any features exist
+            has_features = any(isinstance(f, dict) and len(f) > 0 for f in predictions_df['features'])
+            
+            if has_features:
+                try:
+                    # Explode features into separate columns
+                    features_df = pd.json_normalize(predictions_df['features'])
+                    
+                    # Combine with main dataframe
+                    detailed_df = pd.concat([
+                        predictions_df[['timestamp', 'model_version', 'prediction']].reset_index(drop=True),
+                        features_df.reset_index(drop=True)
+                    ], axis=1)
+                    
+                    # Display detailed table
+                    st.dataframe(detailed_df, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Error processing feature data: {e}")
+                    st.dataframe(predictions_df[['timestamp', 'model_version', 'prediction']], use_container_width=True)
+            else:
+                st.warning("No detailed feature data available in predictions")
+                st.dataframe(predictions_df[['timestamp', 'model_version', 'prediction']], use_container_width=True)
         else:
-            # Explode features into separate columns
-            features_df = pd.json_normalize(predictions_df['features'])
-            
-            # Combine with main dataframe
-            detailed_df = pd.concat([
-                predictions_df[['timestamp', 'model_version', 'prediction']].reset_index(drop=True),
-                features_df.reset_index(drop=True)
-            ], axis=1)
-            
-            # Display detailed table
-            st.dataframe(detailed_df, use_container_width=True)
+            st.warning("No detailed feature data available")
+            st.dataframe(predictions_df[['timestamp', 'model_version', 'prediction']], use_container_width=True)
     else:
         st.info("No prediction data available. Make some predictions first.")
 
