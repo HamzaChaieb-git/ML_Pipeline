@@ -4,10 +4,10 @@ FROM hamzachaieb01/ml-pipeline:latest
 # Set working directory
 WORKDIR /app
 
-# Install curl for health checks and pymongo for database connection
+# Install curl for health checks, pymongo for database connection, and prometheus-client for metrics
 RUN apt-get update && \
     apt-get install -y curl && \
-    pip install pymongo && \
+    pip install pymongo prometheus-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy application files

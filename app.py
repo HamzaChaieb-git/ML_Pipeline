@@ -1,14 +1,16 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Response
 import pandas as pd
 import joblib
 import mlflow
 import os
 import logging
-from typing import List, Dict
+from typing import List, Dict, Any
 from db_connector import get_db_connector
 import json
 from bson.json_util import dumps
 from datetime import datetime
+from prometheus_client import Counter, Histogram, Gauge, generate_latest
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +21,12 @@ app = FastAPI(title="Churn Prediction API")
 # Initialize the model variable at the module level
 model = None
 
+# Create Prometheus metrics
+PREDICTIONS_COUNTER = Counter('ml_predictions_total', 'Total number of predictions', ['model_version', 'prediction_class'])
+PREDICTION_LATENCY = Histogram('ml_prediction_latency_seconds', 'Time spent processing prediction', ['model_version'])
+PREDICTION_SCORES = Histogram('ml_prediction_scores', 'Distribution of prediction scores', ['model_version'])
+MODEL_LOADED = Gauge('ml_model_loaded', 'Model loading status (1=loaded, 0=not loaded)')
+
 
 # Load the latest model from artifacts/models/
 def load_latest_model():
@@ -26,6 +34,7 @@ def load_latest_model():
         models_dir = os.path.join("artifacts", "models")
         if not os.path.exists(models_dir):
             logger.warning(f"Models directory not found: {models_dir}")
+            MODEL_LOADED.set(0.0)
             return None
 
         model_files = [
@@ -35,6 +44,7 @@ def load_latest_model():
         ]
         if not model_files:
             logger.warning(f"No model files found in {models_dir}")
+            MODEL_LOADED.set(0.0)
             return None
 
         latest_model = max(
@@ -45,9 +55,11 @@ def load_latest_model():
         logger.info(f"Loading model from {model_path}")
         loaded_model = joblib.load(model_path)
         logger.info(f"Model loaded successfully: {latest_model}")
+        MODEL_LOADED.set(1.0)
         return loaded_model
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
+        MODEL_LOADED.set(0.0)
         return None
 
 
@@ -55,8 +67,10 @@ def load_latest_model():
 try:
     model = load_latest_model()
     logger.info(f"Initial model loading status: {'Success' if model else 'Failed'}")
+    MODEL_LOADED.set(1.0 if model else 0.0)
 except Exception as e:
     logger.error(f"Error during initial model loading: {str(e)}")
+    MODEL_LOADED.set(0.0)
 
 # Define the expected input features (matching your training data)
 expected_features = [
@@ -99,6 +113,12 @@ def model_status():
     }
 
 
+@app.get('/metrics')
+def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(generate_latest(), media_type="text/plain")
+
+
 @app.post("/predict", response_model=Dict[str, List[float]])
 def predict(churn_data: Dict[str, List[float]]):
     """
@@ -117,6 +137,7 @@ def predict(churn_data: Dict[str, List[float]]):
     }
     """
     global model  # Moved to the beginning of the function
+    start_time = time.time()
 
     # Check if model is loaded
     if model is None:
@@ -152,13 +173,24 @@ def predict(churn_data: Dict[str, List[float]]):
             input_df[col] = pd.to_numeric(input_df[col], errors="coerce")
 
         # Make predictions
-        predictions = model.predict_proba(input_df)[
-            :, 1
-        ]  # Probability of churn (class 1)
+        predictions = model.predict_proba(input_df)[:, 1]  # Probability of churn (class 1)
         
         # Get model info
         model_info = getattr(model, "model_info", {"version": "unknown"})
         model_version = model_info.get("version", "unknown")
+        
+        # Record metrics
+        # Record prediction latency
+        PREDICTION_LATENCY.labels(model_version=model_version).observe(time.time() - start_time)
+        
+        # Record prediction counts by class
+        for pred in predictions:
+            class_label = "churn" if pred > 0.5 else "no_churn"
+            PREDICTIONS_COUNTER.labels(model_version=model_version, prediction_class=class_label).inc()
+        
+        # Record prediction score distribution
+        for pred in predictions:
+            PREDICTION_SCORES.labels(model_version=model_version).observe(pred)
         
         # Store predictions in MongoDB
         db = get_db_connector()
