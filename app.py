@@ -21,12 +21,52 @@ app = FastAPI(title="Churn Prediction API")
 # Initialize the model variable at the module level
 model = None
 
-# Create Prometheus metrics
+# Create Basic Prometheus metrics
 PREDICTIONS_COUNTER = Counter('ml_predictions_total', 'Total number of predictions', ['model_version', 'prediction_class'])
 PREDICTION_LATENCY = Histogram('ml_prediction_latency_seconds', 'Time spent processing prediction', ['model_version'])
 PREDICTION_SCORES = Histogram('ml_prediction_scores', 'Distribution of prediction scores', ['model_version'])
 MODEL_LOADED = Gauge('ml_model_loaded', 'Model loading status (1=loaded, 0=not loaded)')
 
+# Advanced metrics
+PREDICTION_CONFIDENCE = Histogram(
+    'ml_prediction_confidence', 
+    'Distribution of model confidence scores', 
+    ['model_version', 'prediction_class'],
+    buckets=[0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99, 0.995, 1.0]
+)
+
+FEATURE_VALUES = Histogram(
+    'ml_feature_values', 
+    'Distribution of input feature values', 
+    ['model_version', 'feature_name'],
+    buckets=[float('-inf'), 0, 10, 50, 100, 200, 500, float('inf')]
+)
+
+MODEL_RELOADS = Counter(
+    'ml_model_reloads_total', 
+    'Number of times the model was reloaded', 
+    ['model_version', 'reason']
+)
+
+PREDICTION_ERRORS = Counter(
+    'ml_prediction_errors_total', 
+    'Number of errors during prediction', 
+    ['model_version', 'error_type']
+)
+
+PREDICTION_BATCH_SIZE = Histogram(
+    'ml_prediction_batch_size', 
+    'Size of prediction batches', 
+    ['model_version'],
+    buckets=[1, 2, 5, 10, 20, 50, 100, 200, 500]
+)
+
+REQUEST_SIZE = Histogram(
+    'ml_request_payload_bytes', 
+    'Size of prediction request payloads', 
+    ['model_version'],
+    buckets=[10, 100, 1000, 10000, 100000, 1000000]
+)
 
 # Load the latest model from artifacts/models/
 def load_latest_model():
@@ -56,6 +96,11 @@ def load_latest_model():
         loaded_model = joblib.load(model_path)
         logger.info(f"Model loaded successfully: {latest_model}")
         MODEL_LOADED.set(1.0)
+        
+        # Extract model version from filename
+        model_version = latest_model.replace("model_", "").replace(".joblib", "")
+        MODEL_RELOADS.labels(model_version=model_version, reason="startup").inc()
+        
         return loaded_model
     except Exception as e:
         logger.error(f"Failed to load model: {str(e)}")
@@ -144,18 +189,32 @@ def predict(churn_data: Dict[str, List[float]]):
         # Try to reload the model
         model = load_latest_model()
         if model is None:
+            PREDICTION_ERRORS.labels(model_version="unknown", error_type="model_not_loaded").inc()
             raise HTTPException(
                 status_code=503, detail="Model not loaded. Service unavailable."
             )
 
     try:
         logger.info("Received prediction request")
+        # Get model info
+        model_info = getattr(model, "model_info", {"version": "unknown"})
+        model_version = model_info.get("version", "unknown")
+        
+        # Track request payload size
+        request_size = len(str(churn_data))
+        REQUEST_SIZE.labels(model_version=model_version).observe(request_size)
+        
         # Convert input to DataFrame
         input_df = pd.DataFrame(churn_data)
+        
+        # Track batch size
+        batch_size = len(input_df)
+        PREDICTION_BATCH_SIZE.labels(model_version=model_version).observe(batch_size)
 
         # Validate input features
         if not all(feature in input_df.columns for feature in expected_features):
             missing = [f for f in expected_features if f not in input_df.columns]
+            PREDICTION_ERRORS.labels(model_version=model_version, error_type="missing_features").inc()
             raise HTTPException(status_code=400, detail=f"Missing features: {missing}")
 
         # Ensure the order and types match the training data
@@ -171,13 +230,13 @@ def predict(churn_data: Dict[str, List[float]]):
             "Number vmail messages",
         ]:
             input_df[col] = pd.to_numeric(input_df[col], errors="coerce")
+            
+            # Track feature value distributions
+            for value in input_df[col]:
+                FEATURE_VALUES.labels(model_version=model_version, feature_name=col).observe(value)
 
         # Make predictions
         predictions = model.predict_proba(input_df)[:, 1]  # Probability of churn (class 1)
-        
-        # Get model info
-        model_info = getattr(model, "model_info", {"version": "unknown"})
-        model_version = model_info.get("version", "unknown")
         
         # Record metrics
         # Record prediction latency
@@ -187,6 +246,10 @@ def predict(churn_data: Dict[str, List[float]]):
         for pred in predictions:
             class_label = "churn" if pred > 0.5 else "no_churn"
             PREDICTIONS_COUNTER.labels(model_version=model_version, prediction_class=class_label).inc()
+            
+            # Track prediction confidence
+            confidence = pred if class_label == "churn" else 1 - pred
+            PREDICTION_CONFIDENCE.labels(model_version=model_version, prediction_class=class_label).observe(confidence)
         
         # Record prediction score distribution
         for pred in predictions:
@@ -212,6 +275,8 @@ def predict(churn_data: Dict[str, List[float]]):
         return {"churn_probabilities": predictions.tolist()}
 
     except Exception as e:
+        model_version = getattr(model, "model_info", {}).get("version", "unknown") if model else "unknown"
+        PREDICTION_ERRORS.labels(model_version=model_version, error_type="prediction_failure").inc()
         logger.error(f"Prediction failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 

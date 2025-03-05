@@ -1,18 +1,16 @@
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-  scrape_timeout: 10s
+  scrape_interval: 10s
+  evaluation_interval: 10s
+  scrape_timeout: 5s
+
+rule_files:
+  - "rules/ml_alerts.yml"
 
 alerting:
   alertmanagers:
-    - static_configs:
-        - targets: []
-      scheme: http
-      timeout: 10s
-
-rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
+  - static_configs:
+    - targets:
+      - alertmanager:9093
 
 scrape_configs:
   - job_name: 'prometheus'
@@ -21,8 +19,13 @@ scrape_configs:
 
   - job_name: 'fastapi'
     metrics_path: '/metrics'
+    scrape_interval: 5s
     static_configs:
       - targets: ['fastapi:8000']
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'go_.*'
+        action: drop
 
   - job_name: 'mlflow'
     metrics_path: '/metrics'

@@ -1,0 +1,56 @@
+groups:
+- name: ml_model_alerts
+  rules:
+  - alert: ModelNotLoaded
+    expr: ml_model_loaded == 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "ML Model Not Loaded"
+      description: "The ML model has been unavailable for 5 minutes."
+      
+  - alert: HighPredictionLatency
+    expr: rate(ml_prediction_latency_seconds_sum[5m]) / rate(ml_prediction_latency_seconds_count[5m]) > 0.2
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Prediction Latency"
+      description: "Average prediction latency is above 200ms for 5 minutes."
+      
+  - alert: PredictionErrorRate
+    expr: sum(rate(ml_prediction_errors_total[5m])) / sum(rate(ml_predictions_total[5m])) > 0.01
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Prediction Error Rate"
+      description: "Prediction error rate is above 1% for 5 minutes."
+      
+  - alert: HighMemoryUsage
+    expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Memory Usage"
+      description: "Memory usage is above 85% for 5 minutes."
+      
+  - alert: HighCPUUsage
+    expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High CPU Usage"
+      description: "CPU usage is above 80% for 5 minutes."
+      
+  - alert: NoPredictionsRecently
+    expr: sum(increase(ml_predictions_total[1h])) == 0
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "No Predictions"
+      description: "No predictions have been made in the last hour."

@@ -97,7 +97,7 @@ services:
       retries: 3
       start_period: 20s
 
-  # New services for monitoring
+  # New monitoring services
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -111,6 +111,7 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=30d'
     ports:
       - "9090:9090"
     networks:
@@ -127,6 +128,7 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel,marcusolsson-json-datasource,natel-plotly-panel,grafana-clock-panel
     ports:
       - "3000:3000"
     depends_on:
