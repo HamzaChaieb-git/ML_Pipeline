@@ -3,40 +3,78 @@
 ![GitHub Workflow Status](https://img.shields.io/badge/CI/CD-GitHub_Actions-blue)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
 ![MLflow](https://img.shields.io/badge/MLflow-Tracking-green)
+![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-red)
+![Grafana](https://img.shields.io/badge/Grafana-Dashboards-orange)
 ![Python Version](https://img.shields.io/badge/python-3.12-blue)
 
-A comprehensive machine learning pipeline for predicting customer churn, built with a modern MLOps approach.
+A comprehensive machine learning pipeline for predicting customer churn, built with a modern MLOps approach featuring automatic model retraining, performance monitoring, and containerized deployment.
 
 ## 📋 Overview
 
-This project implements an end-to-end machine learning system for customer churn prediction with the following components:
+This project implements an end-to-end MLOps system for customer churn prediction with the following components:
 
-- **Machine Learning Pipeline**: Automated data processing, model training, and evaluation
-- **FastAPI Backend**: REST API for real-time predictions
-- **Streamlit Dashboard**: User-friendly web interface for predictions and model monitoring
-- **MLflow Tracking**: Experiment tracking and model registry
-- **Docker Integration**: Containerized deployment for all components
-- **CI/CD Pipeline**: Automated testing, building, and deployment using GitHub Actions
+- **Machine Learning Pipeline**: Automated data processing, model training, evaluation, and versioning
+- **FastAPI Backend**: REST API for real-time predictions and model retraining
+- **Streamlit Dashboard**: User-friendly web interface for predictions, model monitoring, and retraining
+- **MLflow Integration**: Experiment tracking, model registry, and versioning
+- **Monitoring Stack**: Prometheus metrics collection and Grafana dashboards
+- **Database Integration**: MongoDB for storing predictions and metrics
+- **Docker Deployment**: Containerized multi-service architecture
+- **CI/CD Pipeline**: Automated testing, building, and deployment using GitHub Actions and Makefile
 
 ## 🚀 Features
 
-- Data preprocessing with automatic feature engineering
-- XGBoost model training with hyperparameter configurations
+### ML Pipeline
+- Data preprocessing with automatic feature engineering and encoding
+- XGBoost model training with configurable hyperparameters
 - Comprehensive model evaluation metrics and visualizations
-- Model persistence and versioning with MLflow
-- Automatic model promotion to staging/production based on metrics
-- Real-time predictions via API
-- Interactive web dashboard with model tracking capabilities
-- Automated testing and CI/CD workflow
+- MLflow experiment tracking and model registry
+- Automatic model promotion based on performance metrics
+
+### FastAPI Service
+- Real-time prediction endpoints with request validation
+- Model retraining API endpoints
+- Dataset upload capabilities
+- Model registry management
+- Prometheus metrics instrumentation
+
+### Streamlit Dashboard
+- Interactive prediction interface with visualizations
+- Model performance monitoring
+- System metrics visualization
+- Dataset management for retraining
+- Model registry and lifecycle management
+
+### Monitoring
+- Prometheus metrics collection
+- Grafana dashboards for:
+  - Model performance metrics
+  - System resource utilization
+  - Prediction patterns
+  - API performance
+- Alerting capabilities for model and system issues
+
+### Containerization & Deployment
+- Multi-container architecture with Docker Compose
+- Separate containers for:
+  - FastAPI service
+  - Streamlit dashboard
+  - MLflow tracking server
+  - Monitoring services
+  - MongoDB database
+- Environment isolation and reproducibility
 
 ## 🔧 Architecture
 
-The system consists of four main services:
+The system consists of several integrated services:
 
-1. **FastAPI**: Provides a RESTful API for model predictions
+1. **FastAPI**: Provides a RESTful API for model predictions and retraining
 2. **Streamlit**: Offers a user-friendly interface for interacting with the model and monitoring experiments
 3. **MLflow**: Tracks experiments, metrics, and models
-4. **Pipeline**: Orchestrates the ML workflow (data processing, training, evaluation)
+4. **MongoDB**: Stores predictions and monitoring data
+5. **Prometheus**: Collects metrics from all services
+6. **Grafana**: Visualizes metrics with custom dashboards
+7. **Pipeline**: Orchestrates the ML workflow (data processing, training, evaluation)
 
 ## 📦 Installation
 
@@ -74,11 +112,12 @@ Once running, the services will be available at:
 - FastAPI: http://localhost:8000
 - Streamlit Dashboard: http://localhost:8501
 - MLflow Tracking Server: http://localhost:5001
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000 (admin/admin)
 
 ### API Examples
 
-Make predictions using the FastAPI endpoint:
-
+#### Make Predictions
 ```bash
 curl -X POST "http://localhost:8000/predict" \
   -H "Content-Type: application/json" \
@@ -92,6 +131,14 @@ curl -X POST "http://localhost:8000/predict" \
     "Number vmail messages": [0],
     "Voice mail plan": [0]
   }'
+```
+
+#### Trigger Model Retraining
+```bash
+curl -X POST "http://localhost:8000/retrain" \
+  -F "train_file=churn-bigml-80.csv" \
+  -F "test_file=churn-bigml-20.csv" \
+  -F "auto_promote=true"
 ```
 
 ### Running the Pipeline Manually
@@ -109,7 +156,7 @@ Available actions:
 
 With model promotion:
 ```bash
-python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all --auto-promote
+python main.py --train-file churn-bigml-80.csv --test-file churn-bigml-20.csv --action all --promote
 ```
 
 ## 🧪 Testing
@@ -129,34 +176,63 @@ make format
 
 ## 📊 Streamlit Dashboard Features
 
-The enhanced Streamlit dashboard now includes:
+The enhanced Streamlit dashboard includes:
 
-1. **Prediction Interface**: Make individual predictions with visual results
-2. **MLflow Dashboard**: Explore all experiments, runs, metrics, and parameters
-3. **Model Comparison**: Compare different models with interactive visualizations
+1. **Dashboard Overview**: Key performance metrics and system status
+2. **Model Performance**: Detailed model metrics and visualizations
+3. **Make Prediction**: Interactive prediction interface with visual results
+4. **Recent Predictions**: Analysis of prediction patterns and distribution
+5. **System Monitoring**: Resource utilization and service status
+6. **Model Retraining**: Dataset management and model lifecycle control
 
-## 📈 MLflow Integration
+## 📈 Monitoring Features
 
-This project includes comprehensive MLflow integration for experiment tracking:
+This project includes comprehensive monitoring capabilities:
 
-- Training curves with multiple metrics
-- Model parameters and evaluation metrics
-- Artifacts including visualizations and model files
-- Model Registry with versioning
-- Automatic model promotion based on performance metrics
+- **Prometheus Metrics**: 
+  - Prediction counts and latencies
+  - Model loading status
+  - Resource utilization
+  - API performance
+
+- **Grafana Dashboards**:
+  - Model performance dashboard
+  - Prediction analytics dashboard
+  - System performance dashboard
+
+- **Alerting**:
+  - Model unavailability
+  - High prediction latency
+  - Resource constraints
+  - Prediction error rates
+
+## 🔄 Model Retraining
+
+The system supports automated model retraining:
+
+- Upload or select training and testing datasets
+- Trigger retraining via UI or API
+- Monitor training progress and results
+- Automatic model promotion based on performance thresholds
+- Model registry integration for lifecycle management
 
 ## 📄 Project Structure
 
 ```
 ├── .github/workflows/   # GitHub Actions workflows
 ├── artifacts/           # Model artifacts and MLflow data
+├── grafana/             # Grafana dashboard configurations
+├── prometheus/          # Prometheus configuration
 ├── tests/               # Test suite
 ├── app.py               # FastAPI application
 ├── data_processing.py   # Data preprocessing module
+├── db_connector.py      # MongoDB connector
 ├── docker-compose.yml   # Docker Compose configuration
 ├── Dockerfile.*         # Dockerfiles for each service
 ├── main.py              # Pipeline orchestration
 ├── model_*.py           # Model training, evaluation, persistence
+├── monitoring.py        # Monitoring utilities
+├── model_retrain.py     # Model retraining module
 ├── streamlit_app.py     # Streamlit dashboard
 └── makefile             # Build and test automation
 ```
@@ -168,14 +244,12 @@ Major configuration options:
 - Model parameters: `model_training.py`
 - Docker settings: `docker-compose.yml` and `Dockerfile.*` files
 - CI/CD pipeline: `.github/workflows/simple-ci-cd.yml`
+- Prometheus: `prometheus/prometheus.yml`
+- Grafana: `grafana/provisioning/dashboards/`
 
 ## 🔒 Security Note
 
-The repository uses GitHub Secrets for storing sensitive information like email credentials. Make sure to set up the following secrets in your repository:
-
-- `NGROK_AUTH_TOKEN`: For exposing services during CI/CD
-- `EMAIL_USERNAME`: Email address for notifications
-- `EMAIL_PASSWORD`: Email password or app-specific password
+The repository uses GitHub Secrets for storing sensitive information. Make sure to set up the appropriate secrets in your repository.
 
 ## 🤝 Contributing
 
@@ -184,4 +258,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📜 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
