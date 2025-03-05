@@ -4,18 +4,27 @@ FROM hamzachaieb01/ml-pipeline:latest
 # Set working directory
 WORKDIR /app
 
-# Install curl for health checks, pymongo for database connection, and prometheus-client for metrics
+# Install required dependencies
 RUN apt-get update && \
     apt-get install -y curl && \
-    pip install pymongo prometheus-client && \
+    pip install pymongo prometheus-client python-multipart seaborn matplotlib plotly pandas numpy xgboost scikit-learn && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy application files
+# Copy all the necessary Python modules
 COPY app.py .
 COPY db_connector.py .
+COPY model_retrain.py .
+COPY data_processing.py .
+COPY model_training.py .
+COPY model_evaluation.py .
+COPY model_persistence.py .
 
-# Make sure artifacts directory exists
+# Make sure artifacts directories exist
 RUN mkdir -p /app/artifacts/models
+RUN mkdir -p /app/artifacts/retraining
+RUN mkdir -p /app/artifacts/data
+RUN mkdir -p /app/artifacts/evaluation
+RUN mkdir -p /app/artifacts/training
 
 # Copy artifacts directory with any models
 COPY artifacts/ /app/artifacts/

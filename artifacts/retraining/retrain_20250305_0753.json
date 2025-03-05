@@ -1,0 +1,88 @@
+{
+  "model_version": "20250305_0753",
+  "training_started": "2025-03-05T07:53:44.845224",
+  "status": "success",
+  "metrics": {
+    "accuracy": 0.9565217391304348,
+    "precision": 0.9230769230769231,
+    "recall": 0.7578947368421053,
+    "f1": 0.8323699421965318,
+    "roc_auc": 0.9110783952889216,
+    "log_loss": 0.1729857227185728,
+    "precision_class_0": 0.9609507640067911,
+    "recall_class_0": 0.9895104895104895,
+    "f1_class_0": 0.9750215331610681,
+    "precision_class_1": 0.9230769230769231,
+    "recall_class_1": 0.7578947368421053,
+    "f1_class_1": 0.8323699421965318,
+    "true_negatives": 566,
+    "false_positives": 6,
+    "false_negatives": 23,
+    "true_positives": 72,
+    "balanced_accuracy": 0.8737026131762974,
+    "precision_recall_ratio": 1.217948717948718,
+    "false_positive_rate": 0.01048951048951049,
+    "false_negative_rate": 0.24210526315789474,
+    "positive_predictive_value": 0.9230769230769231,
+    "negative_predictive_value": 0.9609507640067911
+  },
+  "data_stats": {
+    "train_samples": 2666,
+    "test_samples": 667,
+    "features": [
+      "Total day minutes",
+      "Customer service calls",
+      "International plan",
+      "Total intl minutes",
+      "Total intl calls",
+      "Total eve minutes",
+      "Number vmail messages",
+      "Voice mail plan"
+    ],
+    "feature_stats": {
+      "Total day minutes": {
+        "mean": 179.48162040510127,
+        "min": 0.0,
+        "max": 350.8
+      },
+      "Customer service calls": {
+        "mean": 1.5626406601650413,
+        "min": 0.0,
+        "max": 9.0
+      },
+      "International plan": {
+        "mean": 0.10127531882970743,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "Total intl minutes": {
+        "mean": 10.23702175543886,
+        "min": 0.0,
+        "max": 20.0
+      },
+      "Total intl calls": {
+        "mean": 4.467366841710428,
+        "min": 0.0,
+        "max": 20.0
+      },
+      "Total eve minutes": {
+        "mean": 200.38615903975995,
+        "min": 0.0,
+        "max": 363.7
+      },
+      "Number vmail messages": {
+        "mean": 8.021755438859715,
+        "min": 0.0,
+        "max": 50.0
+      },
+      "Voice mail plan": {
+        "mean": 0.27494373593398347,
+        "min": 0.0,
+        "max": 1.0
+      }
+    }
+  },
+  "errors": [],
+  "run_id": "add623eba03340cf82bd94c7c835cbc4",
+  "registry_version": 2,
+  "promotion_eligible": 

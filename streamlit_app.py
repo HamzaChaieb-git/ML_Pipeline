@@ -11,6 +11,7 @@ import pymongo
 from bson.json_util import dumps
 import numpy as np
 import time
+import io
 
 # Set page configuration
 st.set_page_config(
@@ -303,6 +304,87 @@ st.markdown("""
         font-weight: 700;
         color: #1e3a8a;
         margin: 0;
+    }
+    
+    /* Custom file upload styling */
+    .file-uploader {
+        border: 2px dashed #1e40af;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        background-color: #f3f4f6;
+        margin-bottom: 20px;
+    }
+    
+    /* Toggle switch styling */
+    .toggle-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 5px 10px;
+        background-color: #f3f4f6;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    
+    /* Training progress bar */
+    .progress-bar-container {
+        width: 100%;
+        background-color: #f3f4f6;
+        border-radius: 5px;
+        margin: 10px 0;
+    }
+    
+    .progress-bar {
+        height: 20px;
+        border-radius: 5px;
+        background-color: #1e40af;
+        text-align: center;
+        color: white;
+        font-weight: 500;
+        line-height: 20px;
+    }
+    
+    /* Model lifecycle stages */
+    .model-stage {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 30px;
+    }
+    
+    .stage-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 120px;
+    }
+    
+    .stage-circle {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #f3f4f6;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 10px;
+        font-weight: 600;
+    }
+    
+    .stage-circle.active {
+        background-color: #1e40af;
+        color: white;
+    }
+    
+    .stage-line {
+        height: 2px;
+        flex-grow: 1;
+        background-color: #f3f4f6;
+        margin-top: 20px;
+    }
+    
+    .stage-line.active {
+        background-color: #1e40af;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -658,6 +740,112 @@ def get_service_status():
     
     return statuses
 
+# Get available datasets for retraining
+def get_available_datasets():
+    """Fetch available datasets from FastAPI"""
+    try:
+        response = requests.get("http://fastapi:8000/available-datasets", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "message": "Could not fetch datasets", "datasets": []}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "datasets": []}
+
+# Get registered models
+def get_registered_models():
+    """Fetch registered models from FastAPI"""
+    try:
+        response = requests.get("http://fastapi:8000/registered-models", timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "message": "Could not fetch registered models", "models": []}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "models": []}
+
+# Get retraining status
+def get_retraining_status(version=None):
+    """Fetch retraining status from FastAPI"""
+    try:
+        url = "http://fastapi:8000/retrain-status"
+        if version:
+            url += f"?version={version}"
+        
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "message": "Could not fetch retraining status"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# Upload dataset for retraining
+def upload_dataset(file, dataset_type):
+    """Upload dataset for retraining"""
+    try:
+        files = {'file': (file.name, file, 'text/csv')}
+        data = {'dataset_type': dataset_type}
+        
+        response = requests.post(
+            "http://fastapi:8000/upload-dataset",
+            files=files,
+            data=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "message": f"Upload failed with status code {response.status_code}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# Start model retraining
+def start_retraining(train_file, test_file, auto_promote=False):
+    """Start model retraining"""
+    try:
+        data = {
+            'train_file': train_file,
+            'test_file': test_file,
+            'auto_promote': auto_promote
+        }
+        
+        response = requests.post(
+            "http://fastapi:8000/retrain",
+            data=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "message": f"Retraining failed with status code {response.status_code}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# Promote model to production
+def promote_model(model_name, version):
+    """Promote model to production"""
+    try:
+        data = {
+            'model_name': model_name,
+            'version': version
+        }
+        
+        response = requests.post(
+            "http://fastapi:8000/promote-model",
+            data=data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "message": f"Promotion failed with status code {response.status_code}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # Header with logo and navigation
 def render_header():
     """Render the top header with logo and title"""
@@ -676,7 +864,7 @@ def render_sidebar():
         # Navigation
         page = st.radio(
             "Choose a page:",
-            ["Dashboard", "Model Performance", "Make Prediction", "Recent Predictions", "System Monitoring"]
+            ["Dashboard", "Model Performance", "Make Prediction", "Recent Predictions", "System Monitoring", "Model Retraining"]
         )
         
         # Model info section
@@ -1830,7 +2018,7 @@ def render_system_monitoring():
     system_df, is_real_data = get_system_metrics()
     
     if not is_real_data:
-        st.info("system metrics data.")
+        st.info("Using simulated system metrics data.")
     
     # Current system metrics
     st.markdown("<h3>Current System Metrics</h3>", unsafe_allow_html=True)
@@ -2022,6 +2210,594 @@ def render_system_monitoring():
         hide_index=True
     )
 
+# Model Retraining Page
+def render_model_retraining():
+    st.markdown("<h2>Model Retraining & Management</h2>", unsafe_allow_html=True)
+    
+    # Tabs for different sections of model management
+    tabs = st.tabs(["Data Selection", "Training Configuration", "Training Status", "Model Registry"])
+    
+    with tabs[0]:
+        st.markdown("<h3>Dataset Selection</h3>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">Available Datasets</div>
+                <p>Select datasets to use for model retraining or upload new ones.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Get available datasets
+            datasets_response = get_available_datasets()
+            
+            if datasets_response["status"] == "success" and datasets_response["datasets"]:
+                datasets = datasets_response["datasets"]
+                
+                # Create dataframe for display
+                datasets_df = pd.DataFrame(datasets)
+                if "columns" in datasets_df.columns:
+                    datasets_df["column_count"] = datasets_df["columns"].apply(len)
+                if "has_target" in datasets_df.columns:
+                    datasets_df["has_target"] = datasets_df["has_target"].apply(lambda x: "✅" if x else "❌")
+                
+                # Display datasets table
+                st.dataframe(
+                    datasets_df[["filename", "rows_preview", "column_count", "has_target", "recommended_for"]],
+                    column_config={
+                        "filename": st.column_config.TextColumn("Dataset Filename"),
+                        "rows_preview": st.column_config.NumberColumn("Rows"),
+                        "column_count": st.column_config.NumberColumn("Columns"),
+                        "has_target": st.column_config.TextColumn("Has Target"),
+                        "recommended_for": st.column_config.TextColumn("Recommended For"),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Dataset selection
+                st.markdown("<h4>Select Training and Testing Datasets</h4>", unsafe_allow_html=True)
+                
+                # Filter for train and test datasets
+                train_datasets = [d["filename"] for d in datasets if d["has_target"] and d.get("recommended_for") in ["train", "unknown"]]
+                test_datasets = [d["filename"] for d in datasets if d["has_target"] and d.get("recommended_for") in ["test", "unknown"]]
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    train_file = st.selectbox("Training Dataset", train_datasets if train_datasets else ["No datasets available"])
+                
+                with col2:
+                    test_file = st.selectbox("Testing Dataset", test_datasets if test_datasets else ["No datasets available"])
+                
+                # Start training button
+                st.markdown("<br>", unsafe_allow_html=True)
+                if train_datasets and test_datasets:
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    with col2:
+                        auto_promote = st.checkbox("Auto-promote if metrics are good", value=False, 
+                                                  help="Automatically promote the model to production if metrics meet thresholds")
+                        
+                        if st.button("Start Training", use_container_width=True):
+                            with st.spinner("Starting training job..."):
+                                result = start_retraining(train_file, test_file, auto_promote)
+                                
+                                if result.get("status") == "started" or result.get("status") == "success":
+                                    st.success("✅ Training job started successfully!")
+                                    st.json(result)
+                                    st.info("Switch to the 'Training Status' tab to monitor progress.")
+                                else:
+                                    st.error(f"❌ Failed to start training: {result.get('message', 'Unknown error')}")
+                else:
+                    st.warning("Please select both training and testing datasets to proceed.")
+            else:
+                st.warning("No datasets available. Please upload datasets first.")
+        
+        with col2:
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">Upload Dataset</div>
+                <p>Upload new datasets for model training.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Dataset upload form
+            with st.form("upload_dataset_form"):
+                uploaded_file = st.file_uploader("Choose CSV file", type=["csv"])
+                dataset_type = st.radio("Dataset Type", ["train", "test"], horizontal=True)
+                upload_button = st.form_submit_button("Upload Dataset", use_container_width=True)
+                
+                if upload_button and uploaded_file is not None:
+                    with st.spinner("Uploading dataset..."):
+                        # Save file to memory
+                        result = upload_dataset(uploaded_file, dataset_type)
+                        
+                        if result.get("status") == "success":
+                            st.success(f"✅ Dataset uploaded successfully: {result.get('filename')}")
+                            st.json(result)
+                            # Refresh the page to show the new dataset
+                            st.experimental_rerun()
+                        else:
+                            st.error(f"❌ Upload failed: {result.get('message', 'Unknown error')}")
+            
+            # Information about dataset requirements
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">Dataset Requirements</div>
+                <ul style="padding-left: 20px;">
+                    <li>File must be in CSV format</li>
+                    <li>Must include target 'Churn' column</li>
+                    <li>Should contain the features used in the model</li>
+                    <li>Training dataset should be larger (e.g., 80%)</li>
+                    <li>Testing dataset should be smaller (e.g., 20%)</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with tabs[1]:
+        st.markdown("<h3>Training Configuration</h3>", unsafe_allow_html=True)
+
+        # Model information card
+        st.markdown("""
+        <div class="card">
+            <div class="card-title">Default Model Configuration</div>
+            <p>The model will be trained with the following default parameters:</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Default hyperparameters
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">XGBoost Hyperparameters</div>
+                <table style="width:100%;">
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">max_depth:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">6</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">learning_rate:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">0.1</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">n_estimators:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">100</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">min_child_weight:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">1</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">subsample:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">0.8</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">colsample_bytree:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">0.8</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">gamma:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">0.1</td>
+                    </tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            # Promotion thresholds
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">Promotion Thresholds</div>
+                <p>For automatic promotion to production:</p>
+                <table style="width:100%;">
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">Minimum Accuracy:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">0.85</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px; color: #6b7280;">Minimum ROC AUC:</td>
+                        <td style="padding:3px; font-weight:bold; text-align:right;">0.80</td>
+                    </tr>
+                </table>
+                <div style="margin-top: 15px; padding: 10px; background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 5px;">
+                    <p style="margin: 0;"><strong>Note:</strong> Models not meeting these thresholds will be registered in staging but not promoted to production.</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Advanced configuration toggle
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            with st.expander("Advanced Configuration"):
+                st.info("Advanced hyperparameter customization will be available in a future update. Currently, models are trained with the default settings.")
+                
+                # Placeholder for future advanced configuration options
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.text_input("Custom Model Name", value="churn_prediction_model", disabled=True)
+                with col2:
+                    st.number_input("Early Stopping Rounds", value=10, disabled=True)
+                
+                st.multiselect("Features to Include", options=["All Features"], default=["All Features"], disabled=True)
+                st.slider("Train/Validation Split", min_value=0.1, max_value=0.3, value=0.2, disabled=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    
+    with tabs[2]:
+        st.markdown("<h3>Training Status & History</h3>", unsafe_allow_html=True)
+        
+        # Check most recent training status
+        retraining_status = get_retraining_status()
+        
+        # Status card
+        if retraining_status.get("status") not in ["error", "no_data", "not_found"]:
+            status = retraining_status.get("status", "unknown")
+            model_version = retraining_status.get("model_version", "Unknown")
+            metrics = retraining_status.get("metrics", {})
+            training_started = retraining_status.get("training_started", "")
+            training_completed = retraining_status.get("training_completed", "")
+            
+            # Status indicator
+            status_color = "#10b981" if status == "success" else "#f59e0b" if status == "started" else "#ef4444"
+            status_text = "Completed" if status == "success" else "In Progress" if status == "started" else "Failed"
+            
+            st.markdown(f"""
+            <div class="card">
+                <div class="card-title">Latest Training Job</div>
+                <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <div style="background-color: {status_color}; color: white; padding: 5px 10px; border-radius: 20px; font-weight: 500; margin-right: 10px;">
+                        {status_text}
+                    </div>
+                    <div style="color: #6b7280;">Model Version: <strong>{model_version}</strong></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                    <div>Started: <strong>{training_started}</strong></div>
+                    <div>Completed: <strong>{training_completed or 'In progress...'}</strong></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if status == "success" and metrics:
+                # Display metrics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Accuracy", f"{metrics.get('accuracy', 0):.4f}")
+                with col2:
+                    st.metric("ROC AUC", f"{metrics.get('roc_auc', 0):.4f}")
+                with col3:
+                    st.metric("Precision", f"{metrics.get('precision', 0):.4f}")
+                with col4:
+                    st.metric("Recall", f"{metrics.get('recall', 0):.4f}")
+                
+                # Promotion status
+                if retraining_status.get("promoted_to_production", False):
+                    st.success("✅ Model has been automatically promoted to production!")
+                elif retraining_status.get("promotion_eligible", False):
+                    st.info("ℹ️ Model is eligible for promotion to production.")
+                    if st.button("Promote to Production"):
+                        models_response = get_registered_models()
+                        if models_response["status"] == "success" and models_response["models"]:
+                            # Find the model
+                            for model in models_response["models"]:
+                                if model["name"] == f"churn_prediction_model_v{model_version}":
+                                    # Find the first version
+                                    if model["versions"]:
+                                        version = model["versions"][0]["version"]
+                                        result = promote_model(model["name"], version)
+                                        if result.get("status") == "success":
+                                            st.success("✅ Model promoted to production successfully!")
+                                        else:
+                                            st.error(f"❌ Failed to promote model: {result.get('message', 'Unknown error')}")
+                else:
+                    thresholds = retraining_status.get("promotion_thresholds", {})
+                    st.warning(f"⚠️ Model did not meet promotion criteria. Required: Accuracy >= {thresholds.get('accuracy', 0.85)}, ROC AUC >= {thresholds.get('roc_auc', 0.80)}")
+                
+                # Display confusion matrix if available
+                if all(k in metrics for k in ["true_positives", "false_positives", "true_negatives", "false_negatives"]):
+                    st.markdown("<h4>Confusion Matrix</h4>", unsafe_allow_html=True)
+                    conf_matrix_fig = create_confusion_matrix(metrics)
+                    if conf_matrix_fig:
+                        st.plotly_chart(conf_matrix_fig, use_container_width=True)
+                
+                # Show all metrics
+                with st.expander("View All Metrics"):
+                    st.json(metrics)
+                
+                # Show errors if any
+                if retraining_status.get("errors"):
+                    with st.expander("Errors"):
+                        for error in retraining_status["errors"]:
+                            st.error(error)
+            
+            elif status == "started":
+                # Show progress indicators
+                st.markdown("<div class='card'>", unsafe_allow_html=True)
+                st.info("Training in progress. This page will automatically refresh to show updates.")
+                
+                # Mock progress bar (in a real app, you'd calculate based on actual progress)
+                progress_percent = 0.7  # Mock progress at 70%
+                st.markdown(f"""
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width: {progress_percent * 100}%;">
+                        {int(progress_percent * 100)}%
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Auto-refresh
+                st.markdown("<meta http-equiv='refresh' content='5'>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            
+            elif status == "failed":
+                # Show error information
+                st.markdown("<div class='card'>", unsafe_allow_html=True)
+                st.error("Training failed")
+                if retraining_status.get("errors"):
+                    for error in retraining_status["errors"]:
+                        st.warning(error)
+                st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            # No training data available
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">No Training Jobs</div>
+                <p>No model training jobs have been started yet. Go to the Data Selection tab to start a new training job.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Training history section
+        st.markdown("<h3>Training History</h3>", unsafe_allow_html=True)
+        
+        # Get registered models for history
+        models_response = get_registered_models()
+        if models_response["status"] == "success" and models_response["models"]:
+            models = models_response["models"]
+            
+            # Extract history from registered models
+            history_data = []
+            for model in models:
+                for version in model["versions"]:
+                    metrics = version.get("metrics", {})
+                    history_data.append({
+                        "model_name": model["name"],
+                        "version": version["version"],
+                        "stage": version["stage"],
+                        "creation_time": version.get("creation_timestamp", 0),
+                        "accuracy": metrics.get("accuracy", None),
+                        "roc_auc": metrics.get("roc_auc", None),
+                        "precision": metrics.get("precision", None),
+                        "recall": metrics.get("recall", None)
+                    })
+            
+            if history_data:
+                # Convert to dataframe
+                history_df = pd.DataFrame(history_data)
+                
+                # Convert timestamps
+                if "creation_time" in history_df.columns:
+                    history_df["creation_time"] = pd.to_datetime(history_df["creation_time"], unit="ms")
+                    history_df["creation_time"] = history_df["creation_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Display as table
+                st.dataframe(
+                    history_df,
+                    column_config={
+                        "model_name": st.column_config.TextColumn("Model Name"),
+                        "version": st.column_config.TextColumn("Version"),
+                        "stage": st.column_config.TextColumn("Stage"),
+                        "creation_time": st.column_config.TextColumn("Created"),
+                        "accuracy": st.column_config.NumberColumn("Accuracy", format="%.4f"),
+                        "roc_auc": st.column_config.NumberColumn("ROC AUC", format="%.4f"),
+                        "precision": st.column_config.NumberColumn("Precision", format="%.4f"),
+                        "recall": st.column_config.NumberColumn("Recall", format="%.4f")
+                    },
+                    use_container_width=True
+                )
+                
+                # Get metric columns for visualization
+                metric_cols = ["accuracy", "roc_auc", "precision", "recall"]
+                valid_metric_cols = [col for col in metric_cols if col in history_df.columns and not history_df[col].isna().all()]
+                
+                if valid_metric_cols:
+                    # Metrics comparison chart
+                    st.markdown("<h4>Metrics Comparison</h4>", unsafe_allow_html=True)
+                    
+                    fig = px.bar(
+                        history_df.sort_values("model_name"),
+                        x="model_name",
+                        y=valid_metric_cols,
+                        barmode="group",
+                        color_discrete_sequence=px.colors.qualitative.Bold,
+                        title="Model Performance Comparison"
+                    )
+                    
+                    fig.update_layout(
+                        xaxis_title="Model",
+                        yaxis_title="Metric Value",
+                        legend_title="Metric",
+                        hovermode="x unified",
+                        yaxis=dict(range=[0, 1]),
+                        plot_bgcolor="rgba(0,0,0,0)"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No training history available yet.")
+        else:
+            st.info("No registered models found.")
+    
+    with tabs[3]:
+        st.markdown("<h3>Model Registry</h3>", unsafe_allow_html=True)
+        
+        # Get registered models
+        models_response = get_registered_models()
+        if models_response["status"] == "success" and models_response["models"]:
+            models = models_response["models"]
+            
+            # Model lifecycle visualization
+            st.markdown("<h4>Model Lifecycle</h4>", unsafe_allow_html=True)
+            
+            # Create model stages visualization
+            st.markdown("""
+            <div class="card">
+                <div class="model-stage">
+                    <div class="stage-item">
+                        <div class="stage-circle active">1</div>
+                        <div>Development</div>
+                    </div>
+                    <div class="stage-line active"></div>
+                    <div class="stage-item">
+                        <div class="stage-circle active">2</div>
+                        <div>Staging</div>
+                    </div>
+                    <div class="stage-line active"></div>
+                    <div class="stage-item">
+                        <div class="stage-circle active">3</div>
+                        <div>Production</div>
+                    </div>
+                    <div class="stage-line"></div>
+                    <div class="stage-item">
+                        <div class="stage-circle">4</div>
+                        <div>Archived</div>
+                    </div>
+                </div>
+                <div style="font-size: 14px; color: #6b7280; margin-top: 10px;">
+                    <p>Models progress through lifecycle stages based on performance and operational requirements.</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Display models by stage
+            stages = ["Production", "Staging", "Archived"]
+            
+            for stage in stages:
+                # Find models in this stage
+                stage_models = []
+                for model in models:
+                    # Extract versions in this stage
+                    stage_versions = [v for v in model["versions"] if v["stage"] == stage]
+                    if stage_versions:
+                        for version in stage_versions:
+                            stage_models.append({
+                                "model_name": model["name"],
+                                "version": version["version"],
+                                "creation_time": version.get("creation_timestamp", 0),
+                                "run_id": version.get("run_id", ""),
+                                "description": version.get("description", ""),
+                                "metrics": version.get("metrics", {})
+                            })
+                
+                if stage_models:
+                    st.markdown(f"<h4>{stage} Models</h4>", unsafe_allow_html=True)
+                    
+                    # Convert to dataframe
+                    stage_df = pd.DataFrame(stage_models)
+                    
+                    # Format timestamps
+                    if "creation_time" in stage_df.columns:
+                        stage_df["creation_time"] = pd.to_datetime(stage_df["creation_time"], unit="ms")
+                        stage_df["creation_time"] = stage_df["creation_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Format metrics for display
+                    if "metrics" in stage_df.columns:
+                        stage_df["metrics_display"] = stage_df["metrics"].apply(
+                            lambda x: ", ".join([f"{k}: {v:.4f}" for k, v in x.items() if k in ["accuracy", "roc_auc", "precision", "recall"]]) if x else ""
+                        )
+                    
+                    # Create actions column
+                    stage_df["actions"] = ""
+                    
+                    # Display as table
+                    st.dataframe(
+                        stage_df[["model_name", "version", "creation_time", "metrics_display", "description"]],
+                        column_config={
+                            "model_name": st.column_config.TextColumn("Model Name"),
+                            "version": st.column_config.TextColumn("Version"),
+                            "creation_time": st.column_config.TextColumn("Created"),
+                            "metrics_display": st.column_config.TextColumn("Metrics"),
+                            "description": st.column_config.TextColumn("Description")
+                        },
+                        use_container_width=True
+                    )
+                    
+                    # Actions for models in this stage
+                    if stage == "Staging":
+                        # Allow promotion to production
+                        st.markdown("<h5>Promote a Staging Model to Production</h5>", unsafe_allow_html=True)
+                        
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        
+                        with col1:
+                            promote_model_name = st.selectbox("Select Model", options=[m["model_name"] for m in stage_models], key=f"promote_model_{stage}")
+                        
+                        with col2:
+                            # Get versions for the selected model
+                            model_versions = [m["version"] for m in stage_models if m["model_name"] == promote_model_name]
+                            promote_version = st.selectbox("Select Version", options=model_versions, key=f"promote_version_{stage}")
+                        
+                        with col3:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button("Promote to Production", key=f"promote_button_{stage}"):
+                                result = promote_model(promote_model_name, promote_version)
+                                if result.get("status") == "success":
+                                    st.success("✅ Model promoted to production successfully!")
+                                    # Force refresh
+                                    st.experimental_rerun()
+                                else:
+                                    st.error(f"❌ Failed to promote model: {result.get('message', 'Unknown error')}")
+                    
+                    elif stage == "Production":
+                        # Show info about the production model
+                        if len(stage_models) > 0:
+                            prod_model = stage_models[0]
+                            metrics = prod_model.get("metrics", {})
+                            if metrics:
+                                # Create metrics visualization
+                                metrics_to_display = {k: v for k, v in metrics.items() if k in ["accuracy", "roc_auc", "precision", "recall"]}
+                                if metrics_to_display:
+                                    fig = go.Figure()
+                                    
+                                    fig.add_trace(go.Bar(
+                                        x=list(metrics_to_display.keys()),
+                                        y=list(metrics_to_display.values()),
+                                        marker_color='rgb(55, 83, 109)'
+                                    ))
+                                    
+                                    fig.update_layout(
+                                        title="Production Model Performance Metrics",
+                                        xaxis_title="Metric",
+                                        yaxis_title="Value",
+                                        yaxis=dict(range=[0, 1]),
+                                        plot_bgcolor="rgba(0,0,0,0)"
+                                    )
+                                    
+                                    st.plotly_chart(fig, use_container_width=True)
+                
+                else:
+                    st.info(f"No models in {stage} stage.")
+            
+            # Model promotion flow visualization
+            st.markdown("<h4>Model Registry Overview</h4>", unsafe_allow_html=True)
+            st.markdown("""
+            <div class="card">
+                <div class="card-title">Model Promotion Workflow</div>
+                <ol style="padding-left: 20px;">
+                    <li><strong>Development:</strong> Initial model training and evaluation</li>
+                    <li><strong>Staging:</strong> Models that pass quality thresholds are promoted to staging for further validation</li>
+                    <li><strong>Production:</strong> Well-performing staging models are promoted to production for deployment</li>
+                    <li><strong>Archived:</strong> Outdated models are archived for reference but no longer used</li>
+                </ol>
+                <p style="font-size: 14px; color: #6b7280; margin-top: 10px;">
+                    This workflow ensures that only high-quality models reach production, with a clear audit trail of model versions and transitions.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.info("No registered models found.")
+
 # Main function
 def main():
     # Render header 
@@ -2041,6 +2817,8 @@ def main():
         render_recent_predictions()
     elif page == "System Monitoring":
         render_system_monitoring()
+    elif page == "Model Retraining":
+        render_model_retraining()
     
     # Footer
     st.markdown("---")

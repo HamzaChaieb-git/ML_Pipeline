@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Response, Form, File, UploadFile
 import pandas as pd
 import joblib
 import mlflow
 import os
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from db_connector import get_db_connector
 import json
 from bson.json_util import dumps
@@ -378,15 +378,224 @@ def get_model_metrics_debug():
 
 
 @app.post("/retrain")
-def retrain_model():
-    """Endpoint to trigger model retraining."""
+async def retrain_model_endpoint(
+    train_file: str = Form(...),
+    test_file: str = Form(...),
+    auto_promote: bool = Form(False),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Endpoint to trigger model retraining using specified datasets.
+    
+    Args:
+        train_file: Path to the training CSV file
+        test_file: Path to the testing CSV file
+        auto_promote: Whether to automatically promote the model if metrics are good
+        
+    Returns:
+        Dictionary with retraining status and information
+    """
+    from model_retrain import retrain_model
+    
+    logger.info(f"Retraining requested with: train_file={train_file}, test_file={test_file}, auto_promote={auto_promote}")
+    
+    # Validate file paths
+    if not os.path.exists(train_file):
+        raise HTTPException(status_code=400, detail=f"Training file not found: {train_file}")
+    if not os.path.exists(test_file):
+        raise HTTPException(status_code=400, detail=f"Test file not found: {test_file}")
+    
+    # Function for background retraining
+    def _retrain_in_background():
+        try:
+            success, result = retrain_model(train_file, test_file, auto_promote)
+            # Store result in a file for later retrieval
+            os.makedirs("artifacts/retraining", exist_ok=True)
+            result_file = os.path.join("artifacts", "retraining", f"retrain_{result.get('model_version', 'unknown')}.json")
+            with open(result_file, "w") as f:
+                json.dump(result, f, indent=2)
+            logger.info(f"Retraining completed with status: {result.get('status')}")
+            
+            # Update MongoDB if available
+            try:
+                db = get_db_connector()
+                if db:
+                    # Log metrics if available
+                    if "metrics" in result and result["metrics"]:
+                        db.save_model_metrics(result.get("model_version", "unknown"), result["metrics"])
+                        logger.info(f"Logged model metrics to MongoDB")
+            except Exception as e:
+                logger.error(f"Failed to update MongoDB after retraining: {e}")
+        except Exception as e:
+            logger.error(f"Background retraining task failed: {e}")
+    
+    # Start retraining in the background if background_tasks is provided
+    if background_tasks:
+        background_tasks.add_task(_retrain_in_background)
+        return {
+            "status": "started",
+            "message": "Retraining started in the background. Use /retrain-status to check progress.",
+            "train_file": train_file,
+            "test_file": test_file,
+            "auto_promote": auto_promote,
+            "timestamp": datetime.now().isoformat()
+        }
+    else:
+        # Run synchronously
+        success, result = retrain_model(train_file, test_file, auto_promote)
+        return result
+
+
+@app.get("/retrain-status")
+async def retrain_status(version: Optional[str] = None):
+    """
+    Get the status of the most recent retraining job or a specific version.
+    
+    Args:
+        version: Optional specific model version to check
+        
+    Returns:
+        Dictionary with retraining status and information
+    """
     try:
-        # This would typically call your model training script
-        # For now, we'll just return a message
-        return {"status": "success", "message": "Model retraining initiated"}
+        retraining_dir = os.path.join("artifacts", "retraining")
+        if not os.path.exists(retraining_dir):
+            return {"status": "no_data", "message": "No retraining data available"}
+        
+        # Get all retraining result files
+        result_files = [f for f in os.listdir(retraining_dir) if f.startswith("retrain_") and f.endswith(".json")]
+        if not result_files:
+            return {"status": "no_data", "message": "No retraining data available"}
+        
+        if version:
+            # Try to find the specific version requested
+            matching_files = [f for f in result_files if version in f]
+            if not matching_files:
+                return {"status": "not_found", "message": f"No retraining data found for version {version}"}
+            
+            result_file = os.path.join(retraining_dir, matching_files[0])
+        else:
+            # Get the most recent result file based on modification time
+            result_file = os.path.join(retraining_dir, max(
+                result_files, key=lambda x: os.path.getmtime(os.path.join(retraining_dir, x))
+            ))
+        
+        # Load the retraining result
+        with open(result_file, "r") as f:
+            result = json.load(f)
+        
+        return result
     except Exception as e:
-        logger.error(f"Error initiating retraining: {str(e)}")
-        return {"status": "error", "message": f"Failed to initiate retraining: {str(e)}"}
+        logger.error(f"Error getting retraining status: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/available-datasets")
+async def available_datasets():
+    """
+    Get information about available datasets for retraining.
+    
+    Returns:
+        Dictionary with dataset information
+    """
+    from model_retrain import get_available_datasets
+    return get_available_datasets()
+
+
+@app.get("/registered-models")
+async def registered_models():
+    """
+    Get information about registered models.
+    
+    Returns:
+        Dictionary with model information
+    """
+    from model_retrain import get_registered_models
+    return get_registered_models()
+
+
+@app.post("/promote-model")
+async def promote_model(model_name: str = Form(...), version: str = Form(...)):
+    """
+    Endpoint to manually promote a model to production.
+    
+    Args:
+        model_name: Name of the registered model
+        version: Version to promote
+        
+    Returns:
+        Dictionary with promotion result
+    """
+    from model_retrain import manual_promote_model
+    return manual_promote_model(model_name, version)
+
+
+@app.post("/upload-dataset")
+async def upload_dataset(
+    file: UploadFile = File(...),
+    dataset_type: str = Form(...)  # Either "train" or "test"
+):
+    """
+    Upload a dataset for model retraining.
+    
+    Args:
+        file: CSV file to upload
+        dataset_type: Type of dataset (train or test)
+        
+    Returns:
+        Dictionary with upload result
+    """
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs("artifacts/data", exist_ok=True)
+        
+        # Determine filename
+        if dataset_type.lower() not in ["train", "test"]:
+            raise HTTPException(status_code=400, detail="dataset_type must be 'train' or 'test'")
+        
+        # Get original filename and extension
+        filename_parts = os.path.splitext(file.filename)
+        if filename_parts[1].lower() != ".csv":
+            raise HTTPException(status_code=400, detail="Only CSV files are supported")
+        
+        # Create a timestamped filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        target_filename = f"{dataset_type}_{timestamp}.csv"
+        file_path = os.path.join("artifacts", "data", target_filename)
+        
+        # Save the file
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+        
+        # Try to verify it's a valid CSV with the right columns
+        try:
+            df = pd.read_csv(file_path, nrows=5)
+            has_target = "Churn" in df.columns
+            if not has_target:
+                os.remove(file_path)  # Delete the invalid file
+                raise HTTPException(status_code=400, detail="CSV file must contain a 'Churn' column")
+            
+            # Get data stats
+            row_count = len(pd.read_csv(file_path))
+            column_count = len(df.columns)
+        except Exception as e:
+            os.remove(file_path)  # Delete the invalid file
+            raise HTTPException(status_code=400, detail=f"Error processing CSV file: {str(e)}")
+        
+        return {
+            "status": "success",
+            "message": f"Dataset uploaded successfully as {target_filename}",
+            "filename": file_path,
+            "dataset_type": dataset_type,
+            "rows": row_count,
+            "columns": column_count,
+            "has_target": has_target
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading dataset: {e}")
+        raise HTTPException(status_code=500, detail=f"Error uploading dataset: {str(e)}")
 
 
 if __name__ == "__main__":
